@@ -1,0 +1,23 @@
+# Data
+data/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.pdf
+*.synctex.gz
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Download scripts
+download_*.py
