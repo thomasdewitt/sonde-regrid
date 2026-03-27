@@ -34,27 +34,40 @@ DATA_DIR = os.path.join(ROOT, "data")
 OUTPUT_DIR = os.path.join(ROOT, "output")
 
 Z_MIN = 0.0
-Z_MAX = 30000.0
+Z_MAX_DEFAULT = 20000.0   # 20 km for dropsonde datasets
+Z_MAX_IGRA = 40000.0      # 40 km for IGRA radiosondes
 DZ = DEFAULT_DZ
 
 DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE"]
 
 DATASETS = {
-    "joanne":    {"reader": read_joanne,    "path": os.path.join(DATA_DIR, "joanne")},
-    "beach":     {"reader": read_beach,     "path": os.path.join(DATA_DIR, "beach")},
-    "otrec":     {"reader": read_otrec,     "path": os.path.join(DATA_DIR, "otrec")},
-    "activate":  {"reader": read_activate,  "path": os.path.join(DATA_DIR, "activate")},
+    "joanne":    {"reader": read_joanne,    "path": os.path.join(DATA_DIR, "joanne"),
+                  "z_max": Z_MAX_DEFAULT},
+    "beach":     {"reader": read_beach,     "path": os.path.join(DATA_DIR, "beach"),
+                  "z_max": Z_MAX_DEFAULT},
+    "otrec":     {"reader": read_otrec,     "path": os.path.join(DATA_DIR, "otrec"),
+                  "z_max": Z_MAX_DEFAULT},
+    "activate":  {"reader": read_activate,  "path": os.path.join(DATA_DIR, "activate"),
+                  "z_max": Z_MAX_DEFAULT},
     "hurricane": {"reader": read_hurricane, "path": os.path.join(DATA_DIR, "hurricane",
-                   "1996-2012.NOAA.Hurricane.Dropsonde.Archive.v2")},
-    "dynamo":    {"reader": read_dynamo,    "path": os.path.join(DATA_DIR, "dynamo")},
-    "shout":     {"reader": read_shout,     "path": os.path.join(DATA_DIR, "shout")},
-    "arrecon":   {"reader": read_arrecon,   "path": os.path.join(DATA_DIR, "arrecon")},
-    "igra":      {"reader": read_igra,      "path": os.path.join(DATA_DIR, "igra")},
+                   "1996-2012.NOAA.Hurricane.Dropsonde.Archive.v2"),
+                  "z_max": Z_MAX_DEFAULT},
+    "dynamo":    {"reader": read_dynamo,    "path": os.path.join(DATA_DIR, "dynamo"),
+                  "z_max": Z_MAX_DEFAULT},
+    "shout":     {"reader": read_shout,     "path": os.path.join(DATA_DIR, "shout"),
+                  "z_max": Z_MAX_DEFAULT},
+    "arrecon":   {"reader": read_arrecon,   "path": os.path.join(DATA_DIR, "arrecon"),
+                  "z_max": Z_MAX_DEFAULT},
+    "igra":      {"reader": read_igra,      "path": os.path.join(DATA_DIR, "igra"),
+                  "z_max": Z_MAX_IGRA},
 }
 
 
-def process_dataset(name, reader, data_path):
+def process_dataset(name, reader, data_path, z_max=None):
     """Read, regrid, and save one dataset to output/{name}.nc."""
+    if z_max is None:
+        z_max = Z_MAX_DEFAULT
+
     print(f"\n{'='*60}")
     print(f"Processing {name}")
     print(f"{'='*60}")
@@ -69,7 +82,7 @@ def process_dataset(name, reader, data_path):
         return
 
     # Build the altitude coordinate (cell centers)
-    edges = np.arange(Z_MIN, Z_MAX + DZ, DZ)
+    edges = np.arange(Z_MIN, z_max + DZ, DZ)
     altitude = 0.5 * (edges[:-1] + edges[1:])
     n_alt = len(altitude)
     n_sondes = len(profiles)
@@ -92,7 +105,7 @@ def process_dataset(name, reader, data_path):
             variables["q"] = prof["q"]
 
         ds = regrid_sonde(prof["altitude"], variables,
-                          z_min=Z_MIN, z_max=Z_MAX, dz=DZ)
+                          z_min=Z_MIN, z_max=z_max, dz=DZ)
 
         for var in DATA_VARIABLES:
             if var in ds:
@@ -188,7 +201,7 @@ def process_dataset(name, reader, data_path):
         "regridding_method": "bin averaging (no interpolation)",
         "grid_spacing_m": DZ,
         "grid_min_m": Z_MIN,
-        "grid_max_m": Z_MAX,
+        "grid_max_m": z_max,
         "n_sondes": n_sondes,
         "n_altitude_levels": n_alt,
         "variables_directly_gridded": "u, v, p, T, RH",
@@ -213,7 +226,7 @@ def main():
 
     for name in names:
         cfg = DATASETS[name]
-        process_dataset(name, cfg["reader"], cfg["path"])
+        process_dataset(name, cfg["reader"], cfg["path"], z_max=cfg["z_max"])
 
     print("\nDone.")
 

@@ -8,8 +8,8 @@ profile dicts with standardized keys and units:
     launch_time: numpy datetime64 or None
     launch_lat : float (degrees N)
     launch_lon : float (degrees E)
-    altitude   : ndarray [m] (geometric, GPS-based for dropsondes;
-                               geopotential height for IGRA)
+    altitude   : ndarray [m] (geometric altitude above MSL for all datasets;
+                               IGRA geopotential height is converted to geometric)
     p          : ndarray [Pa]
     T          : ndarray [K]
     RH         : ndarray [%] (0--100)
@@ -62,6 +62,20 @@ def _first_finite(arr):
     if np.any(finite):
         return float(arr[finite][0])
     return np.nan
+
+
+# Mean Earth radius [m] for geopotential ↔ geometric height conversion
+_RE = 6_371_000.0
+
+
+def _geopotential_to_geometric(gph):
+    """Convert geopotential height [m] to geometric height [m].
+
+    z = R_e * H / (R_e - H), where H is geopotential height.
+    The difference is ~0.3% at 30 km.
+    """
+    gph = np.asarray(gph, dtype=np.float64)
+    return _RE * gph / (_RE - gph)
 
 
 # ---------------------------------------------------------------------------
@@ -709,7 +723,7 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
 
     IGRA stores:
       pressure   [Pa]
-      GPH        [m]  (geopotential height, used as altitude)
+      GPH        [m]  (geopotential height, converted to geometric altitude)
       temperature[tenths of °C]
       RH         [tenths of %]
       wind dir   [degrees]
@@ -762,13 +776,13 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
                 i += 1 + numlev
                 continue
 
-            if hour in (0, 6, 12, 18, 99):
-                h = hour if hour != 99 else 0
+            if hour in (0, 6, 12, 18):
+                try:
+                    launch_time = np.datetime64(datetime(year, month, day, hour))
+                except ValueError:
+                    launch_time = None
             else:
-                h = 0
-            try:
-                launch_time = np.datetime64(datetime(year, month, day, h))
-            except ValueError:
+                # hour=99 or non-synoptic: preserve as NaT rather than fabricate
                 launch_time = None
 
             # Parse data levels
@@ -809,7 +823,7 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
             if len(altitudes) < 3:
                 continue
 
-            altitude = np.array(altitudes, dtype=np.float64)
+            altitude = _geopotential_to_geometric(altitudes)  # GPH → geometric
             p = np.array(pressures, dtype=np.float64)         # Pa
             T = np.array(temps, dtype=np.float64) + 273.15    # °C → K
             rh = np.array(rhs, dtype=np.float64)              # %

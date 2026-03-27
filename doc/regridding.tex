@@ -92,9 +92,11 @@ where $z_{\min}$ is the lowest altitude of interest and $N = \lfloor(z_{\max} - 
 \begin{align}
     \bar{z}_k = \tfrac{1}{2}(z_k + z_{k+1}) = z_{\min} + (k + \tfrac{1}{2})\,\Delta z. \label{eq:centers}
 \end{align}
-The default grid spacing is $\Delta z = \SI{10}{m}$, chosen to be finer than the effective vertical resolution of most modern radiosondes and dropsondes (of order $\SI{200}{m}$) so that no information is lost during regridding.
+The default grid spacing is $\Delta z = \SI{10}{m}$, chosen to be finer than the effective vertical resolution of most modern radiosondes and dropsondes (of order $\SI{200}{m}$) so that no information is lost during regridding.  The altitude range is $z_{\min} = \SI{0}{m}$ to $z_{\max} = \SI{20}{km}$ for all dropsonde datasets and $z_{\max} = \SI{40}{km}$ for IGRA radiosondes, which routinely ascend into the stratosphere.
 
 For each grid cell, the regridded value of a variable is the arithmetic mean of all measurements whose altitude falls within that cell.  If a cell contains no measurements, the value is recorded as missing.  Observations that are themselves missing or flagged are excluded.  This procedure is applied independently to each variable, so missing-value patterns may differ between variables.
+
+All dropsonde datasets report geometric (GPS-derived) altitude.  IGRA reports geopotential height, which is converted to geometric altitude via $z = R_e H / (R_e - H)$, where $H$ is geopotential height and $R_e = \SI{6371}{km}$ is the mean Earth radius.  The difference is approximately 0.5\% at $\SI{30}{km}$ (${\sim}\SI{100}{m}$).
 
 \section{Effective vertical resolution} \label{sec:resolution}
 
@@ -219,7 +221,7 @@ Variable & Type & Description \\
 \end{tabular}
 \end{center}
 
-\noindent For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release.  For radiosondes, they refer to the launch site.
+\noindent For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release, or the first GPS measurement in the profile when explicit release coordinates are not available.  For radiosondes, they refer to the launch site.
 
 \subsection{Data variables}
 
@@ -244,7 +246,7 @@ Variable & Description & Units \\
 \end{tabular}
 \end{center}
 
-\noindent Variables that depend on relative humidity (\texttt{q}, \texttt{theta\_e}, \texttt{MSE}) are entirely NaN for profiles where RH is unavailable---for example, the 20 ACTIVATE sondes with unreconditioned humidity sensors, or IGRA stations that do not report humidity.  \texttt{theta} and \texttt{DSE} require only temperature and pressure and are present for all profiles.
+\noindent Variables that depend on relative humidity (\texttt{q}, \texttt{theta\_e}, \texttt{MSE}) are entirely NaN for profiles where RH is unavailable---for example, the 20 ACTIVATE sondes with unreconditioned humidity sensors, or IGRA stations that do not report humidity.  \texttt{theta} requires temperature and pressure; \texttt{DSE} requires only temperature and altitude.  Both are present for all profiles.
 
 \section{Validation} \label{sec:validation}
 

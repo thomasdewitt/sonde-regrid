@@ -122,17 +122,31 @@ def test_joanne_validation():
         if good.any():
             print(f"{var:>8}  {np.median(rmsds[good]):12.4f}  {np.mean(biases[good]):12.4f}  {units:>8}")
 
-    # Assert broad consistency — these thresholds allow for
-    # interpolation-vs-averaging differences.
-    median_T_rmsd = np.nanmedian(all_rmsd["T"])
-    median_u_rmsd = np.nanmedian(all_rmsd["u"])
-    median_v_rmsd = np.nanmedian(all_rmsd["v"])
-    median_RH_rmsd = np.nanmedian(all_rmsd["RH"])
+    # Assert consistency — thresholds match the spec (doc/regridding.tex §5).
+    thresholds = {
+        "T":  (0.5,  "K"),      # spec: 0.5 K
+        "u":  (0.5,  "m/s"),    # spec: 0.5 m/s
+        "v":  (0.5,  "m/s"),    # spec: 0.5 m/s
+        "RH": (5.0,  "%"),      # spec: 5 %
+        "p":  (100.0, "Pa"),    # spec: 1 hPa = 100 Pa
+    }
 
-    assert median_T_rmsd < 1.0, f"T RMSD too large: {median_T_rmsd:.3f} K"
-    assert median_u_rmsd < 1.0, f"u RMSD too large: {median_u_rmsd:.3f} m/s"
-    assert median_v_rmsd < 1.0, f"v RMSD too large: {median_v_rmsd:.3f} m/s"
-    assert median_RH_rmsd < 5.0, f"RH RMSD too large: {median_RH_rmsd:.3f} %"
+    print("\nAssertion checks:")
+    for var, (threshold, unit) in thresholds.items():
+        rmsds = np.array(all_rmsd[var])
+        biases = np.array(all_bias[var])
+        good = np.isfinite(rmsds)
+        if not good.any():
+            continue
+        med_rmsd = np.nanmedian(rmsds)
+        mean_bias = np.nanmean(biases[good])
+        assert med_rmsd < threshold, \
+            f"{var} median RMSD too large: {med_rmsd:.3f} {unit} (threshold {threshold})"
+        # Bias should be small relative to RMSD (less than half)
+        assert abs(mean_bias) < 0.5 * threshold, \
+            f"{var} mean bias too large: {mean_bias:.3f} {unit} (threshold ±{0.5*threshold})"
+        print(f"  {var:>4}: RMSD {med_rmsd:.4f} < {threshold} {unit}, "
+              f"bias {mean_bias:+.4f} OK")
 
     print("\nAll assertions passed.")
 
