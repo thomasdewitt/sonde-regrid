@@ -1,0 +1,834 @@
+"""
+Data readers for 9 sonde datasets.
+
+Each read_* function takes a data directory path and returns a list of
+profile dicts with standardized keys and units:
+
+    sonde_id   : str
+    launch_time: numpy datetime64 or None
+    launch_lat : float (degrees N)
+    launch_lon : float (degrees E)
+    altitude   : ndarray [m] (geometric, GPS-based for dropsondes;
+                               geopotential height for IGRA)
+    p          : ndarray [Pa]
+    T          : ndarray [K]
+    RH         : ndarray [%] (0--100)
+    u          : ndarray [m/s]
+    v          : ndarray [m/s]
+
+Missing values are np.nan.  All arrays share the same length for a
+given profile.
+
+QC filtering follows the spec (doc/regridding.tex).
+"""
+
+import glob
+import io
+import os
+import re
+import zipfile
+from datetime import datetime
+
+import numpy as np
+import xarray as xr
+
+
+MISSING = -999.0
+MISSING_ICT = -9999.0
+
+
+# ---------------------------------------------------------------------------
+#  Helpers
+# ---------------------------------------------------------------------------
+
+def _wind_components(wspd, wdir_deg):
+    """Convert wind speed and meteorological direction to u, v."""
+    wdir_rad = np.deg2rad(wdir_deg)
+    u = -wspd * np.sin(wdir_rad)
+    v = -wspd * np.cos(wdir_rad)
+    return u, v
+
+
+def _replace_missing(arr, sentinel):
+    """Replace sentinel values with NaN in-place."""
+    arr = np.asarray(arr, dtype=np.float64)
+    arr[arr <= sentinel] = np.nan
+    return arr
+
+
+def _first_finite(arr):
+    """Return the first finite value in arr, or NaN."""
+    finite = np.isfinite(arr)
+    if np.any(finite):
+        return float(arr[finite][0])
+    return np.nan
+
+
+# ---------------------------------------------------------------------------
+#  JOANNE  (EUREC4A, Level 2 NetCDFs)
+# ---------------------------------------------------------------------------
+
+def read_joanne(data_dir):
+    """Read JOANNE Level 2 dropsonde profiles.
+
+    The Level 2 directory contains one NetCDF per sonde.  These files
+    are already filtered to the 'good' quality tier (1068 of 1215).
+    Units: ta [K], p [Pa], rh [0--1], alt [m], wspd/wdir.
+    """
+    pattern = os.path.join(data_dir, "Level_2", "*.nc")
+    files = sorted(glob.glob(pattern))
+    profiles = []
+
+    for fpath in files:
+        ds = xr.open_dataset(fpath)
+
+        altitude = ds["alt"].values.astype(np.float64)
+        p = ds["p"].values.astype(np.float64)            # Pa
+        T = ds["ta"].values.astype(np.float64)            # K
+        rh_frac = ds["rh"].values.astype(np.float64)      # 0--1
+        wspd = ds["wspd"].values.astype(np.float64)
+        wdir = ds["wdir"].values.astype(np.float64)
+        u, v = _wind_components(wspd, wdir)
+
+        profiles.append({
+            "sonde_id": str(ds["sonde_id"].values),
+            "launch_time": ds["time"].values[0],
+            "launch_lat": float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan)),
+            "launch_lon": float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan)),
+            "altitude": altitude,
+            "p": p,
+            "T": T,
+            "RH": rh_frac * 100.0,  # convert to %
+            "u": u,
+            "v": v,
+        })
+        ds.close()
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  BEACH  (PERCUSION, Level 2 Zarrs)
+# ---------------------------------------------------------------------------
+
+# BEACH sonde_qc encoding: 0=GOOD, 1=BAD, 2=UGLY
+# 17 misconfigured sondes (supplement Table E2 of Gloeckner et al. 2025)
+# and factory-reset sonde 0bd0e322 are already excluded by sonde_qc != 0.
+
+def read_beach(data_dir):
+    """Read BEACH Level 2 dropsonde profiles (Zarr).
+
+    QC: only sonde_qc == 0 ('GOOD') profiles are retained.
+    Units: p [Pa], ta [K], rh [0--1 fractional], alt [m], u/v [m/s].
+    """
+    pattern = os.path.join(data_dir, "Level_2", "*", "*.zarr")
+    zarrs = sorted(glob.glob(pattern))
+    profiles = []
+
+    for zpath in zarrs:
+        try:
+            ds = xr.open_dataset(zpath, engine="zarr", consolidated=False)
+        except Exception:
+            continue
+
+        # QC filter: only GOOD sondes (0=GOOD, 1=BAD, 2=UGLY)
+        if "sonde_qc" in ds and int(ds["sonde_qc"].values) != 0:
+            ds.close()
+            continue
+
+        # Skip incomplete stores (partial download)
+        required = {"alt", "p", "ta", "rh", "u", "v"}
+        if not required.issubset(ds.data_vars):
+            ds.close()
+            continue
+
+        altitude = ds["alt"].values.astype(np.float64)
+        p = ds["p"].values.astype(np.float64)            # Pa
+        T = ds["ta"].values.astype(np.float64)            # K
+        rh_frac = ds["rh"].values.astype(np.float64)      # 0--1
+        u = ds["u"].values.astype(np.float64)
+        v = ds["v"].values.astype(np.float64)
+
+        profiles.append({
+            "sonde_id": str(ds["sonde_id"].values),
+            "launch_time": ds["launch_time"].values if "launch_time" in ds else None,
+            "launch_lat": _first_finite(ds["lat"].values) if "lat" in ds.coords else np.nan,
+            "launch_lon": _first_finite(ds["lon"].values) if "lon" in ds.coords else np.nan,
+            "altitude": altitude,
+            "p": p,
+            "T": T,
+            "RH": rh_frac * 100.0,  # convert to %
+            "u": u,
+            "v": v,
+        })
+        ds.close()
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  OTREC  (NetCDFs, AVAPS-processed)
+# ---------------------------------------------------------------------------
+
+# One warm-biased sounding to exclude per spec.
+OTREC_EXCLUDE = {"20190925_154412"}
+
+
+def read_otrec(data_dir):
+    """Read OTREC dropsonde profiles.
+
+    Units: pres [hPa], tdry [°C], rh [%], gpsalt [m], u/v from wspd/wdir.
+    """
+    pattern = os.path.join(data_dir, "*.nc")
+    files = sorted(glob.glob(pattern))
+    profiles = []
+
+    for fpath in files:
+        # Check exclusion list by filename timestamp
+        fname = os.path.basename(fpath)
+        timestamp = fname.split("_v1_")[1].replace(".nc", "") if "_v1_" in fname else ""
+        # Pattern: OTREC_AVAPS_NRD41_v1_YYYYMMDD_HHMMSS.nc
+        parts = fname.replace(".nc", "").split("_")
+        if len(parts) >= 6:
+            timestamp = parts[4] + "_" + parts[5]
+        if timestamp in OTREC_EXCLUDE:
+            continue
+
+        ds = xr.open_dataset(fpath)
+
+        altitude = ds["gpsalt"].values.astype(np.float64)
+        p = ds["pres"].values.astype(np.float64) * 100.0    # hPa → Pa
+        T = ds["tdry"].values.astype(np.float64) + 273.15   # °C → K
+        rh = ds["rh"].values.astype(np.float64)              # %
+        wspd = ds["wspd"].values.astype(np.float64)
+        wdir = ds["wdir"].values.astype(np.float64)
+        u, v = _wind_components(wspd, wdir)
+
+        launch_time = ds["launch_time"].values
+        # First valid lat/lon for launch position
+        lat = ds["lat"].values.astype(np.float64)
+        lon = ds["lon"].values.astype(np.float64)
+        launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
+        launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
+
+        profiles.append({
+            "sonde_id": fname.replace(".nc", ""),
+            "launch_time": launch_time,
+            "launch_lat": launch_lat,
+            "launch_lon": launch_lon,
+            "altitude": altitude,
+            "p": p,
+            "T": T,
+            "RH": rh,
+            "u": u,
+            "v": v,
+        })
+        ds.close()
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  ACTIVATE  (ICT text files)
+# ---------------------------------------------------------------------------
+
+# Soundings where the humidity sensor was not reconditioned before flight
+# (Table 6 of Vömel et al. 2023, doi:10.1038/s41597-023-02647-5).
+# RH is excluded for these profiles; T, p, and wind are retained.
+# Timestamps are truncated to minutes to match ICT filenames.
+ACTIVATE_UNCONDITIONED_RH = {
+    "201912161840",  # 20191216_184052
+    "201912161913",  # 20191216_191320
+    "201912161920",  # 20191216_192040
+    "201912161923",  # 20191216_192316
+    "202002151725",  # 20200215_172514
+    "202002151855",  # 20200215_185506
+    "202003111342",  # 20200311_134234
+    "202105142102",  # 20210514_210237
+    "202106021845",  # 20210602_184503
+    "202106021850",  # 20210602_185004
+    "202106071840",  # 20210607_184023
+    "202106071935",  # 20210607_193522
+    "202106281435",  # 20210628_143502
+    "202111301715",  # 20211130_171557
+    "202111301743",  # 20211130_174337
+    "202112071852",  # 20211207_185240
+    "202205311335",  # 20220531_133514
+    "202206101806",  # 20220610_180657
+    "202206111819",  # 20220611_181926
+    "202206111933",  # 20220611_193332
+}
+
+
+def read_activate(data_dir):
+    """Read ACTIVATE dropsonde profiles (ICT format).
+
+    QC: profiles whose operator comment is not 'Good Drop' are excluded.
+    RH is excluded for sondes with unreconditioned humidity sensors (Table 6).
+    Units: Pressure [mb], Temperature [°C], RH [%], GPS Altitude [m],
+           Uwnd/Vwnd [m/s].  Missing = -9999.
+    """
+    pattern = os.path.join(data_dir, "*.ict")
+    files = sorted(glob.glob(pattern))
+    profiles = []
+
+    for fpath in files:
+        with open(fpath) as fh:
+            lines = fh.readlines()
+
+        n_header = int(lines[0].split(",")[0])
+
+        # Extract metadata from header
+        sonde_id = os.path.basename(fpath).replace(".ict", "")
+        operator_comment = ""
+        launch_lat = np.nan
+        launch_lon = np.nan
+        launch_time = None
+        for line in lines[:n_header]:
+            if "Operator comments" in line:
+                operator_comment = line.split(":", 1)[1].strip()
+            if "Latitude (deg)" in line:
+                try:
+                    launch_lat = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
+            if "Longitude (deg)" in line:
+                try:
+                    launch_lon = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
+            if "Launch Time" in line:
+                lt_match = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", line)
+                if lt_match:
+                    launch_time = np.datetime64(
+                        datetime.strptime(lt_match.group(1), "%Y-%m-%d %H:%M:%S")
+                    )
+
+        # QC: exclude non-"Good Drop" profiles
+        if "Good Drop" not in operator_comment:
+            continue
+
+        # Column names are on line n_header-1
+        cols = lines[n_header - 1].strip().split(",")
+        col_idx = {name.strip(): i for i, name in enumerate(cols)}
+
+        data = np.genfromtxt(
+            io.StringIO("".join(lines[n_header:])),
+            delimiter=",",
+            missing_values="-9999",
+            filling_values=np.nan,
+        )
+        if data.ndim == 1:
+            continue  # single row, skip
+
+        altitude = _replace_missing(data[:, col_idx["GPS Altitude"]], MISSING_ICT)
+        p = _replace_missing(data[:, col_idx["Pressure"]], MISSING_ICT) * 100.0  # mb → Pa
+        T = _replace_missing(data[:, col_idx["Temperature"]], MISSING_ICT) + 273.15  # °C → K
+        rh = _replace_missing(data[:, col_idx["RH"]], MISSING_ICT)
+        u = _replace_missing(data[:, col_idx["Uwnd"]], MISSING_ICT)
+        v = _replace_missing(data[:, col_idx["Vwnd"]], MISSING_ICT)
+
+        # Fallback: parse launch time from filename if not found in header
+        if launch_time is None:
+            match = re.search(r"(\d{12})", os.path.basename(fpath))
+            if match:
+                launch_time = np.datetime64(datetime.strptime(match.group(1), "%Y%m%d%H%M"))
+
+        # Exclude RH for sondes with unreconditioned humidity sensors
+        ts_match = re.search(r"(\d{12})", os.path.basename(fpath))
+        if ts_match and ts_match.group(1) in ACTIVATE_UNCONDITIONED_RH:
+            rh = None
+
+        profiles.append({
+            "sonde_id": sonde_id,
+            "launch_time": launch_time,
+            "launch_lat": launch_lat,
+            "launch_lon": launch_lon,
+            "altitude": altitude,
+            "p": p,
+            "T": T,
+            "RH": rh,
+            "u": u,
+            "v": v,
+        })
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  EOL sounding format (shared by SHOUT, Hurricane, AR Recon)
+# ---------------------------------------------------------------------------
+
+def _parse_eol(fpath):
+    """Parse an EOL Sounding Format 1.1 file.
+
+    Returns a dict with standardized keys, or None if unparseable.
+    The format has a multi-line header terminated by '------', then
+    whitespace-delimited data columns.
+    """
+    with open(fpath) as fh:
+        lines = fh.readlines()
+
+    # Parse header for metadata
+    sonde_id = os.path.basename(fpath)
+    launch_time = None
+    launch_lat = np.nan
+    launch_lon = np.nan
+    operator_comment = ""
+
+    header_end = 0
+    for i, line in enumerate(lines):
+        if line.startswith("------"):
+            header_end = i + 1
+        if "UTC Launch Time" in line:
+            # Format: 2016, 08, 30, 02:55:24
+            match = re.search(r"(\d{4}),\s*(\d{2}),\s*(\d{2}),\s*(\d{2}):(\d{2}):(\d{2})", line)
+            if match:
+                y, mo, d, h, mi, s = (int(x) for x in match.groups())
+                launch_time = np.datetime64(datetime(y, mo, d, h, mi, s))
+        if "Launch Location" in line:
+            # Format: 58 50.28'W -58.837930, 27 53.59'N 27.893248, 17416.50
+            # Decimal degrees are the 2nd and 4th floats (after DMS minutes)
+            nums = re.findall(r"[-+]?\d+\.\d+", line)
+            if len(nums) >= 4:
+                launch_lon = float(nums[1])
+                launch_lat = float(nums[3])
+        if "Operator/Comments" in line or "System Operator/Comments" in line:
+            operator_comment = line.split("/")[-1].strip()
+
+    if header_end == 0:
+        return None
+
+    # Find the column header line (just above the dashes)
+    # Columns vary between datasets but always include Press, Temp, RH, Uwind, Vwind, GPSAlt
+    col_line = ""
+    for i in range(header_end - 1, -1, -1):
+        if lines[i].strip().startswith("Time"):
+            col_line = lines[i]
+            break
+
+    # Parse data — whitespace-delimited, -999 sentinel
+    data_lines = []
+    for line in lines[header_end:]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("/"):
+            continue
+        data_lines.append(stripped)
+
+    if not data_lines:
+        return None
+
+    data = np.genfromtxt(
+        io.StringIO("\n".join(data_lines)),
+        invalid_raise=False,
+    )
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    if data.shape[0] < 5:
+        return None
+
+    # EOL column indices (standard across SHOUT/Hurricane/ARRecon):
+    # 0:Time 1:hh 2:mm 3:ss 4:Press 5:Temp 6:Dewpt 7:RH 8:Uwind 9:Vwind
+    # 10:Wspd 11:Dir 12:dZ 13:GeoPoAlt 14:Lon 15:Lat 16:GPSAlt
+    # Hurricane adds: 17:Radius 18:Azimuth 19:Wwind 20:Wwind_f
+    ncols = data.shape[1]
+
+    # Prefer GPS altitude (col 16); fall back to geopotential altitude (col 13)
+    if ncols > 16:
+        altitude = _replace_missing(data[:, 16], MISSING)
+        geopot = _replace_missing(data[:, 13], MISSING)
+        no_gps = ~np.isfinite(altitude)
+        altitude[no_gps] = geopot[no_gps]
+    else:
+        altitude = _replace_missing(data[:, 13], MISSING)
+    p = _replace_missing(data[:, 4], MISSING) * 100.0    # mb → Pa
+    T = _replace_missing(data[:, 5], MISSING) + 273.15   # °C → K
+    rh = _replace_missing(data[:, 7], MISSING)            # %
+    u = _replace_missing(data[:, 8], MISSING)             # m/s
+    v = _replace_missing(data[:, 9], MISSING)             # m/s
+
+    return {
+        "sonde_id": sonde_id,
+        "launch_time": launch_time,
+        "launch_lat": launch_lat,
+        "launch_lon": launch_lon,
+        "altitude": altitude,
+        "p": p,
+        "T": T,
+        "RH": rh,
+        "u": u,
+        "v": v,
+        "operator_comment": operator_comment,
+    }
+
+
+# ---------------------------------------------------------------------------
+#  SHOUT  (EOL format, Global Hawk)
+# ---------------------------------------------------------------------------
+
+def read_shout(data_dir):
+    """Read SHOUT dropsonde profiles (EOL format).
+
+    Units: Press [mb], Temp [°C], RH [%], GPSAlt [m], Uwind/Vwind [m/s].
+    """
+    pattern = os.path.join(data_dir, "*.eol")
+    files = sorted(glob.glob(pattern))
+    profiles = []
+
+    for fpath in files:
+        profile = _parse_eol(fpath)
+        if profile is not None:
+            profile.pop("operator_comment", None)
+            profiles.append(profile)
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  Hurricane  (EOL format with radius/azimuth, 1996--2012)
+# ---------------------------------------------------------------------------
+
+def read_hurricane(data_dir):
+    """Read NOAA Hurricane dropsonde archive (EOL format).
+
+    Files are in subdirectories by year/storm/aircraft.
+    """
+    pattern = os.path.join(data_dir, "**", "*.eol.radazm.Wwind")
+    files = sorted(glob.glob(pattern, recursive=True))
+    profiles = []
+
+    for fpath in files:
+        profile = _parse_eol(fpath)
+        if profile is not None:
+            profile.pop("operator_comment", None)
+            profiles.append(profile)
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  AR Recon  (FRD format, ASPEN-processed)
+# ---------------------------------------------------------------------------
+
+def _parse_frd(fpath):
+    """Parse an ASPEN FRD file.
+
+    Format is similar to EOL but with different column layout:
+    IX  t(s)  P(mb)  T(C)  RH(%)  Z(m)  WD  WS(m/s)  U(m/s)  V(m/s)
+    NS  WZ(m/s)  ZW(m)  FP  FT  FH  FW  LAT(N)  LON(E)
+    """
+    with open(fpath) as fh:
+        lines = fh.readlines()
+
+    sonde_id = os.path.basename(fpath)
+    launch_time = None
+    launch_lat = np.nan
+    launch_lon = np.nan
+
+    header_end = 0
+    for i, line in enumerate(lines):
+        # Header ends with the column label line followed by data
+        if line.strip().startswith("IX"):
+            header_end = i + 1
+            break
+        if "Date:" in line and "Lat:" in line:
+            lat_match = re.search(r"Lat:\s+([\d.]+)\s*([NS])?", line)
+            if lat_match:
+                launch_lat = float(lat_match.group(1))
+                if lat_match.group(2) == "S":
+                    launch_lat = -launch_lat
+        if "Time:" in line and "Lon:" in line:
+            lon_match = re.search(r"Lon:\s+([\d.]+)\s*([EW])?", line)
+            if lon_match:
+                launch_lon = float(lon_match.group(1))
+                if lon_match.group(2) == "W":
+                    launch_lon = -launch_lon
+        if "Date:" in line and "Time:" in line:
+            date_match = re.search(r"Date:\s+(\d{6})", line)
+            time_match = re.search(r"Time:\s+(\d{6})", line)
+            if date_match and time_match:
+                dt_str = date_match.group(1) + time_match.group(1)
+                launch_time = np.datetime64(datetime.strptime(dt_str, "%y%m%d%H%M%S"))
+        if "COMMENT:" in line:
+            comment = line.split("COMMENT:")[1].strip()
+
+    if header_end == 0:
+        return None
+
+    data_lines = []
+    for line in lines[header_end:]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        data_lines.append(stripped)
+
+    if not data_lines:
+        return None
+
+    data = np.genfromtxt(
+        io.StringIO("\n".join(data_lines)),
+        invalid_raise=False,
+    )
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    if data.shape[0] < 5:
+        return None
+
+    # FRD columns:
+    # 0:IX 1:t 2:P(mb) 3:T(C) 4:RH(%) 5:Z(m) 6:WD 7:WS 8:U 9:V
+    # 10:NS 11:WZ 12:ZW 13:FP 14:FT 15:FH 16:FW 17:LAT 18:LON
+    altitude = _replace_missing(data[:, 5], MISSING)        # Z in meters
+    p = _replace_missing(data[:, 2], MISSING) * 100.0       # mb → Pa
+    T = _replace_missing(data[:, 3], MISSING) + 273.15      # °C → K
+    rh = _replace_missing(data[:, 4], MISSING)              # %
+    u = _replace_missing(data[:, 8], MISSING)               # m/s
+    v = _replace_missing(data[:, 9], MISSING)               # m/s
+
+    return {
+        "sonde_id": sonde_id,
+        "launch_time": launch_time,
+        "launch_lat": launch_lat,
+        "launch_lon": launch_lon,
+        "altitude": altitude,
+        "p": p,
+        "T": T,
+        "RH": rh,
+        "u": u,
+        "v": v,
+    }
+
+
+def read_arrecon(data_dir):
+    """Read AR Recon dropsonde profiles (FRD format).
+
+    Files are in subdirectories: YYYY/IOP*/AIRCRAFT/*.frd
+    """
+    pattern = os.path.join(data_dir, "**", "*QC.frd")
+    files = sorted(glob.glob(pattern, recursive=True))
+    profiles = []
+
+    for fpath in files:
+        profile = _parse_frd(fpath)
+        if profile is not None:
+            profiles.append(profile)
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  DYNAMO  (NetCDFs, dropsondes only)
+# ---------------------------------------------------------------------------
+
+def read_dynamo(data_dir):
+    """Read DYNAMO dropsonde profiles (NetCDF).
+
+    Per spec, only dropsonde profiles are used (not rawinsonde).
+    Units: pres [hPa], tdry [°C], rh [%], gpsalt [m], u/v [m/s].
+    Missing sentinel: -9999.
+    """
+    pattern = os.path.join(data_dir, "*.nc")
+    files = sorted(glob.glob(pattern))
+    profiles = []
+
+    for fpath in files:
+        ds = xr.open_dataset(fpath)
+
+        altitude = ds["gpsalt"].values.astype(np.float64)
+        p_hpa = ds["pres"].values.astype(np.float64)
+        T_c = ds["tdry"].values.astype(np.float64)
+        rh = ds["rh"].values.astype(np.float64)
+        wspd = ds["wspd"].values.astype(np.float64)
+        wdir = ds["wdir"].values.astype(np.float64)
+
+        # Replace sentinel values
+        for arr in [altitude, p_hpa, T_c, rh, wspd, wdir]:
+            arr[arr <= -999] = np.nan
+
+        p = p_hpa * 100.0       # hPa → Pa
+        T = T_c + 273.15        # °C → K
+        u, v = _wind_components(wspd, wdir)
+
+        # Parse launch time from filename: aircraft.dgar.p3.dropsonde.YYYYMMDD_HHMMSS.nc
+        fname = os.path.basename(fpath)
+        match = re.search(r"(\d{8}_\d{6})", fname)
+        launch_time = None
+        if match:
+            launch_time = np.datetime64(datetime.strptime(match.group(1), "%Y%m%d_%H%M%S"))
+
+        # First valid lat/lon
+        lat = ds["lat"].values.astype(np.float64)
+        lon = ds["lon"].values.astype(np.float64)
+        lat[lat <= -999] = np.nan
+        lon[lon <= -999] = np.nan
+        launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
+        launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
+
+        profiles.append({
+            "sonde_id": fname.replace(".nc", ""),
+            "launch_time": launch_time,
+            "launch_lat": launch_lat,
+            "launch_lon": launch_lon,
+            "altitude": altitude,
+            "p": p,
+            "T": T,
+            "RH": rh,
+            "u": u,
+            "v": v,
+        })
+        ds.close()
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  IGRA  (zipped fixed-width text, radiosondes)
+# ---------------------------------------------------------------------------
+
+def _parse_igra_value(text):
+    """Parse an IGRA fixed-width integer field, stripping A/B flags."""
+    text = text.strip()
+    if not text or text == "-9999" or text == "-8888":
+        return np.nan
+    # Strip trailing flag character (A or B)
+    if text[-1] in ("A", "B"):
+        text = text[:-1]
+    if not text or text.isspace():
+        return np.nan
+    try:
+        return int(text)
+    except ValueError:
+        return np.nan
+
+
+def read_igra(data_dir, year_min=2000, year_max=2025):
+    """Read IGRA v2 radiosonde profiles from zipped station files.
+
+    Only soundings from year_min to year_max (inclusive) are retained.
+    Standard and surface levels are included; tropopause/other markers
+    are retained as well since they contain valid measurements.
+
+    IGRA stores:
+      pressure   [Pa]
+      GPH        [m]  (geopotential height, used as altitude)
+      temperature[tenths of °C]
+      RH         [tenths of %]
+      wind dir   [degrees]
+      wind speed [tenths of m/s]
+
+    All converted to standard units on output.
+    """
+    pattern = os.path.join(data_dir, "*-data.txt.zip")
+    zips = sorted(glob.glob(pattern))
+    profiles = []
+
+    for zpath in zips:
+        station_id = os.path.basename(zpath).split("-data")[0]
+
+        with zipfile.ZipFile(zpath) as zf:
+            txt_name = zf.namelist()[0]
+            with zf.open(txt_name) as f:
+                raw = f.read().decode("ascii", errors="replace")
+
+        # Split into soundings by header lines
+        lines = raw.split("\n")
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            if not line.startswith("#"):
+                i += 1
+                continue
+
+            # Parse header
+            # #ID         YEAR MO DY HR RELTIME NUMLEV ...  LAT     LON
+            # Cols: 2-12  14-17 19-20 22-23 25-26 28-31 33-36 ...
+            header = line
+            try:
+                year = int(header[13:17])
+                month = int(header[18:20])
+                day = int(header[21:23])
+                hour = int(header[24:26])
+                numlev = int(header[32:36])
+                lat_raw = int(header[55:62].strip())
+                lon_raw = int(header[63:71].strip())
+            except (ValueError, IndexError):
+                i += 1
+                continue
+
+            launch_lat = lat_raw / 10000.0
+            launch_lon = lon_raw / 10000.0
+
+            # Skip soundings outside year range
+            if year < year_min or year > year_max:
+                i += 1 + numlev
+                continue
+
+            if hour in (0, 6, 12, 18, 99):
+                h = hour if hour != 99 else 0
+            else:
+                h = 0
+            try:
+                launch_time = np.datetime64(datetime(year, month, day, h))
+            except ValueError:
+                launch_time = None
+
+            # Parse data levels
+            altitudes = []
+            pressures = []
+            temps = []
+            rhs = []
+            wdirs = []
+            wspds = []
+
+            for j in range(1, numlev + 1):
+                if i + j >= len(lines):
+                    break
+                dline = lines[i + j]
+                if len(dline) < 40:
+                    continue
+
+                # Fixed-width columns (0-indexed):
+                # LVLTYP1:1  LVLTYP2:2  ETIME:3-8  PRESS:10-15  PFLAG:16
+                # GPH:17-21  ZFLAG:22  TEMP:23-27  TFLAG:28
+                # RH:29-33  DPDP:35-39  WDIR:41-45  WSPD:47-51
+                press_val = _parse_igra_value(dline[9:16])   # includes flag at pos 16
+                gph_val = _parse_igra_value(dline[16:22])    # includes flag at pos 22
+                temp_val = _parse_igra_value(dline[22:28])   # includes flag at pos 28
+                rh_val = _parse_igra_value(dline[28:34]) if len(dline) > 33 else np.nan
+                wdir_val = _parse_igra_value(dline[40:45]) if len(dline) > 44 else np.nan
+                wspd_val = _parse_igra_value(dline[46:51]) if len(dline) > 50 else np.nan
+
+                pressures.append(press_val)          # already in Pa
+                altitudes.append(gph_val)            # m (geopotential height)
+                temps.append(temp_val / 10.0 if np.isfinite(temp_val) else np.nan)  # tenths → °C
+                rhs.append(rh_val / 10.0 if np.isfinite(rh_val) else np.nan)       # tenths → %
+                wdirs.append(wdir_val)                                               # degrees
+                wspds.append(wspd_val / 10.0 if np.isfinite(wspd_val) else np.nan)  # tenths → m/s
+
+            i += 1 + numlev
+
+            if len(altitudes) < 3:
+                continue
+
+            altitude = np.array(altitudes, dtype=np.float64)
+            p = np.array(pressures, dtype=np.float64)         # Pa
+            T = np.array(temps, dtype=np.float64) + 273.15    # °C → K
+            rh = np.array(rhs, dtype=np.float64)              # %
+            wdir_arr = np.array(wdirs, dtype=np.float64)
+            wspd_arr = np.array(wspds, dtype=np.float64)
+            u, v = _wind_components(wspd_arr, wdir_arr)
+
+            profiles.append({
+                "sonde_id": f"{station_id}_{year:04d}{month:02d}{day:02d}{hour:02d}",
+                "launch_time": launch_time,
+                "launch_lat": launch_lat,
+                "launch_lon": launch_lon,
+                "station_id": station_id,
+                "altitude": altitude,
+                "p": p,
+                "T": T,
+                "RH": rh,
+                "u": u,
+                "v": v,
+            })
+
+    return profiles

@@ -24,15 +24,15 @@
 
 \section{Introduction}
 
-Radiosonde and dropsonde profiles report atmospheric variables at irregular vertical intervals that differ between instruments, processing methods, and field campaigns.  To compare profiles across datasets or to compute structure functions at well-defined separation distances, it is necessary to place all profiles on a common vertical grid.  The algorithm described here does so by partitioning the altitude axis into uniform cells and averaging all measurements that fall within each cell.
+Radiosonde and dropsonde profiles report atmospheric variables at irregular vertical intervals that differ between instruments, processing methods, and field campaigns.  To compare profiles across datasets or to compute structure functions at well-defined separation distances, we first place all profiles on a common vertical grid.  The algorithm described here does so by constructing a uniform grid along the altitude axis and averaging all measurements that fall within each cell. If no measurements fall within a given cell, it is marked as missing.
 
-The simplicity of this approach is deliberate.  By averaging rather than interpolating, no information is fabricated between measurement levels: a grid cell either contains the mean of whatever observations happen to lie inside it, or it is left empty.  This property is important for studies of turbulent scaling, where artificial smoothness introduced by interpolation could bias estimates of spectral exponents \citep[cf.][]{lovejoy2007}.
+The simplicity of this approach is deliberate. If interpolation was used, artificial smoothness would be introduced where data are interpolated given that commonly-used interpolation schemes assume a smooth function with $H=1$ \citep[cf.][]{lovejoy2007}.
 
 \subsection{IGRA}
 
-The Integrated Global Radiosonde Archive \citep{durre2006} is a quality-assured compilation of radiosonde and pilot balloon observations from more than 1500 globally distributed stations, with records extending from the 1960s to the present.  Observations include pressure, temperature, dewpoint depression, geopotential height, wind direction, and wind speed at standard, surface, tropopause, and significant levels.  IGRA integrates data from 11 sources and applies automated quality assurance that checks for physically implausible values, internal inconsistencies among variables, climatological outliers, and temporal inconsistencies.  Values failing any check are set to missing; the archive as distributed constitutes a single quality-assured product.
+The Integrated Global Radiosonde Archive \citep{durre2006} is a quality-assured compilation of radiosonde observations from more than 1500 globally distributed stations, with records extending from the 1960s to the present.  Observations typically include pressure, temperature, dewpoint depression, geopotential height, wind direction, and wind speed.  IGRA integrates data from disparate sources and applies automated quality assurance that removes measurements failing checks for physical implausiblity, internal inconsistency, climatological outliers, and temporal inconsistency.
 
-Here, the data are used as provided.  No additional profile-level filtering is applied beyond the quality assurance already performed by the IGRA processing chain.
+Here, the data from 2000-2025 are used as provided. 
 
 \subsection{JOANNE}
 
@@ -244,13 +244,15 @@ Variable & Description & Units \\
 \end{tabular}
 \end{center}
 
+\noindent Variables that depend on relative humidity (\texttt{q}, \texttt{theta\_e}, \texttt{MSE}) are entirely NaN for profiles where RH is unavailable---for example, the 20 ACTIVATE sondes with unreconditioned humidity sensors, or IGRA stations that do not report humidity.  \texttt{theta} and \texttt{DSE} require only temperature and pressure and are present for all profiles.
+
 \section{Validation} \label{sec:validation}
 
 Two of the dropsonde datasets---JOANNE \citep{george2021} and BEACH \citep{gloeckner2025}---provide both individual sounding profiles and a uniformly gridded product at $\SI{10}{m}$ vertical spacing produced by the data providers.  These gridded products serve as natural validation targets: applying the bin-averaging algorithm described here to the individual profiles and comparing the result against the official gridded product tests whether the two procedures yield consistent output.
 
 Agreement is not expected to be exact.  The provider gridded products use interpolation rather than bin averaging, apply additional quality control beyond what is present in the individual profiles, and in the case of BEACH use slightly different filtering criteria.  The purpose of the comparison is to verify broad consistency with an independent processing chain.
 
-For each variable, the comparison is performed on a per-sounding basis at all grid cells where both products report non-missing values.  We report the root-mean-square difference (RMSD) and mean bias (bin-averaged minus provider-gridded) across all such cells.  The RMSD is compared against thresholds based on the measurement uncertainty of the Vaisala RD41 dropsonde [\textcolor{red}{CITATION NEEDED}]:
+For each variable, the comparison is performed per sounding at all grid cells where both products report non-missing values.  For each sounding, the RMSD and mean bias (bin-averaged minus provider-gridded) are computed over the matched cells.  The summary statistics reported are the \emph{median} RMSD and \emph{mean} bias across all matched soundings.  These are then compared against thresholds based on the measurement uncertainty of the Vaisala RD41 dropsonde [\textcolor{red}{CITATION NEEDED}]:
 
 \begin{center}
 \begin{tabular}{llll}

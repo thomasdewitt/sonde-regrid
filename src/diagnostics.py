@@ -101,3 +101,54 @@ def moist_static_energy(T: np.ndarray, z: np.ndarray,
         Moist static energy [J kg-1].
     """
     return CP * T + G * z + LV * q
+
+
+def dry_static_energy(T: np.ndarray, z: np.ndarray) -> np.ndarray:
+    """Dry static energy [J kg-1].
+
+    DSE = c_p T + g z
+
+    Parameters
+    ----------
+    T : ndarray
+        Temperature [K].
+    z : ndarray
+        Geometric altitude [m].
+
+    Returns
+    -------
+    DSE : ndarray
+        Dry static energy [J kg-1].
+    """
+    return CP * T + G * z
+
+
+def equivalent_potential_temperature(
+    theta: np.ndarray, q: np.ndarray, T: np.ndarray, RH: np.ndarray
+) -> np.ndarray:
+    """Equivalent potential temperature [K] following Bolton (1980).
+
+    theta_e = theta * exp(L_v q / (c_p T_L))
+
+    where T_L is the lifting condensation level temperature:
+        T_L = 1 / (1/(T - 55) - ln(RH/100)/2840) + 55
+
+    Parameters
+    ----------
+    theta : ndarray
+        Potential temperature [K].
+    q : ndarray
+        Water vapor mixing ratio [kg kg-1].
+    T : ndarray
+        Temperature [K].
+    RH : ndarray
+        Relative humidity [%] (0--100).
+
+    Returns
+    -------
+    theta_e : ndarray
+        Equivalent potential temperature [K].
+    """
+    RH_frac = np.clip(RH, 1e-6, 100.0) / 100.0
+    T_L = 1.0 / (1.0 / (T - 55.0) - np.log(RH_frac) / 2840.0) + 55.0
+    return theta * np.exp(LV * q / (CP * T_L))

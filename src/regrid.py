@@ -1,9 +1,10 @@
 """
 Uniform vertical regridding of radiosonde and dropsonde profiles.
 
-The algorithm is intentionally simple: construct a 1D grid of uniform
-vertical spacing, then bin-average all measurements falling within each
-grid cell.  Cells with no measurements are set to NaN.
+The algorithm constructs a 1-D grid of uniform vertical spacing, then
+bin-averages all measurements falling within each grid cell.  Cells with
+no measurements are set to NaN.  Derived thermodynamic variables are
+diagnosed *after* bin averaging.
 
 See doc/regridding.tex for a complete description.
 """
@@ -15,92 +16,76 @@ from diagnostics import (
     mixing_ratio_from_rh,
     potential_temperature,
     moist_static_energy,
+    dry_static_energy,
+    equivalent_potential_temperature,
 )
 
-# Default grid spacing [m]
-DEFAULT_DZ = 10.0
-
-# Variables that are directly regridded (bin-averaged)
-DIRECT_VARS = ["u", "v", "p", "T", "RH"]
-
-# Variables diagnosed after regridding
-DIAGNOSED_VARS = ["q", "theta", "MSE"]
+DEFAULT_DZ = 10.0  # meters
 
 
-def make_grid(z_min: float, z_max: float, dz: float = DEFAULT_DZ) -> np.ndarray:
+def make_grid(z_min, z_max, dz=DEFAULT_DZ):
     """Return cell-edge altitudes for a uniform grid.
 
     Parameters
     ----------
     z_min, z_max : float
-        Altitude bounds [m].  The grid spans from z_min to z_max.
+        Altitude bounds [m].
     dz : float
         Grid spacing [m].
 
     Returns
     -------
     edges : ndarray, shape (N+1,)
-        Monotonically increasing cell edges.  Cell *k* spans
-        [edges[k], edges[k+1]).
+        Cell edges.  Cell k spans [edges[k], edges[k+1]).
     """
-    edges = np.arange(z_min, z_max + dz, dz)
-    return edges
+    return np.arange(z_min, z_max + dz, dz)
 
 
-def bin_average(z_obs: np.ndarray, values: np.ndarray,
-                edges: np.ndarray) -> np.ndarray:
+def bin_average(altitude, values, edges):
     """Bin-average observed values onto a uniform grid.
-
-    For each grid cell defined by consecutive entries in *edges*, the
-    output is the arithmetic mean of all observations whose altitude
-    falls within that cell.  Cells containing no observations are NaN.
 
     Parameters
     ----------
-    z_obs : ndarray, shape (M,)
+    altitude : ndarray, shape (M,)
         Observed altitudes [m].
     values : ndarray, shape (M,)
-        Observed variable at each altitude.
+        Observed variable values.
     edges : ndarray, shape (N+1,)
-        Cell edges produced by :func:`make_grid`.
+        Cell edges from make_grid.
 
     Returns
     -------
     gridded : ndarray, shape (N,)
-        Bin-averaged values.  NaN where no observations exist.
+        Bin-averaged values.  NaN where no valid observations exist.
     """
-    N = len(edges) - 1
-    gridded = np.full(N, np.nan)
+    n_cells = len(edges) - 1
+    gridded = np.full(n_cells, np.nan)
 
-    # np.digitize: bin index 1..N for values inside [edges[0], edges[-1])
-    bin_idx = np.digitize(z_obs, edges) - 1  # shift to 0-based
+    # Assign each observation to a bin (0-based)
+    bin_idx = np.digitize(altitude, edges) - 1
 
-    for k in range(N):
+    for k in range(n_cells):
         mask = bin_idx == k
         if mask.any():
             vals = values[mask]
             good = np.isfinite(vals)
             if good.any():
-                gridded[k] = np.nanmean(vals[good])
+                gridded[k] = np.mean(vals[good])
 
     return gridded
 
 
-def regrid_profile(z_obs: np.ndarray,
-                   profile: dict[str, np.ndarray],
-                   z_min: float = 0.0,
-                   z_max: float = 30000.0,
-                   dz: float = DEFAULT_DZ) -> xr.Dataset:
-    """Regrid a single sonde profile onto a uniform vertical grid.
+def regrid_sonde(altitude, variables, z_min=0.0, z_max=30000.0, dz=DEFAULT_DZ):
+    """Regrid a single sonde profile and diagnose derived variables.
 
     Parameters
     ----------
-    z_obs : ndarray, shape (M,)
+    altitude : ndarray, shape (M,)
         Observed geometric altitudes [m].
-    profile : dict
-        Mapping of variable name -> observed values.  Expected keys
-        are at minimum ``"u"``, ``"v"``, ``"p"``, ``"T"``.
-        Optional: ``"RH"`` (relative humidity, 0--100).
+    variables : dict of str -> ndarray
+        Mapping of variable name to observed values.  Expected keys:
+        "u", "v", "p" (Pa), "T" (K).  Optional: "RH" (%, 0--100)
+        or "q" (kg/kg).
     z_min, z_max : float
         Altitude bounds [m] for the output grid.
     dz : float
@@ -109,44 +94,46 @@ def regrid_profile(z_obs: np.ndarray,
     Returns
     -------
     ds : xarray.Dataset
-        Regridded profile on cell-center altitudes, including both
-        directly averaged and diagnosed variables.
+        Regridded profile on cell-center altitudes, with both directly
+        averaged and diagnosed variables.
     """
     edges = make_grid(z_min, z_max, dz)
     z_centers = 0.5 * (edges[:-1] + edges[1:])
 
-    data_vars = {}
-
     # --- Bin-average directly measured variables ---
-    for var in DIRECT_VARS:
-        if var in profile:
-            data_vars[var] = ("z", bin_average(z_obs, profile[var], edges))
+    gridded = {}
+    for var in ("u", "v", "p", "T", "RH"):
+        if var in variables:
+            gridded[var] = bin_average(altitude, variables[var], edges)
 
-    # --- Diagnose derived variables ---
-    T_grid = data_vars.get("T", (None, None))[1]
-    p_grid = data_vars.get("p", (None, None))[1]
-    RH_grid = data_vars.get("RH", (None, None))[1]
+    # --- Mixing ratio: from RH or directly provided ---
+    if "q" in variables and "RH" not in variables:
+        gridded["q"] = bin_average(altitude, variables["q"], edges)
+    elif all(v in gridded for v in ("RH", "T", "p")):
+        gridded["q"] = mixing_ratio_from_rh(gridded["RH"], gridded["T"], gridded["p"])
 
-    if T_grid is not None and p_grid is not None and RH_grid is not None:
-        q = mixing_ratio_from_rh(RH_grid, T_grid, p_grid)
-        data_vars["q"] = ("z", q)
-    elif "q" in profile:
-        # If mixing ratio is provided directly, regrid it
-        data_vars["q"] = ("z", bin_average(z_obs, profile["q"], edges))
-        q = data_vars["q"][1]
-    else:
-        q = None
+    # --- Potential temperature ---
+    if "T" in gridded and "p" in gridded:
+        gridded["theta"] = potential_temperature(gridded["T"], gridded["p"])
 
-    if T_grid is not None and p_grid is not None:
-        data_vars["theta"] = ("z", potential_temperature(T_grid, p_grid))
+    # --- Equivalent potential temperature ---
+    if all(v in gridded for v in ("theta", "q", "T", "RH")):
+        gridded["theta_e"] = equivalent_potential_temperature(
+            gridded["theta"], gridded["q"], gridded["T"], gridded["RH"]
+        )
 
-    if T_grid is not None and q is not None:
-        data_vars["MSE"] = ("z", moist_static_energy(T_grid, z_centers, q))
+    # --- Moist static energy ---
+    if "T" in gridded and "q" in gridded:
+        gridded["MSE"] = moist_static_energy(gridded["T"], z_centers, gridded["q"])
+
+    # --- Dry static energy ---
+    if "T" in gridded:
+        gridded["DSE"] = dry_static_energy(gridded["T"], z_centers)
 
     ds = xr.Dataset(
-        {k: v for k, v in data_vars.items()},
-        coords={"z": z_centers},
+        {name: ("altitude", values) for name, values in gridded.items()},
+        coords={"altitude": z_centers},
     )
-    ds["z"].attrs = {"units": "m", "long_name": "Altitude (geometric)"}
+    ds["altitude"].attrs = {"units": "m", "long_name": "altitude above mean sea level"}
 
     return ds
