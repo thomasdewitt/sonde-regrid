@@ -36,13 +36,13 @@ Here, the data from 2000-2025 are used as provided.
 
 \subsection{JOANNE}
 
-The Joint dropsonde Observations of the Atmosphere in tropical North atlaNtic meso-scale Environments (JOANNE) dataset \citep{george2021} contains 1215 dropsondes deployed during the EUREC\textsuperscript{4}A field campaign in January--February 2020.  Dropsondes were released from the German HALO and NOAA WP-3D aircraft over the tropical North Atlantic east of Barbados, with the goal of characterizing the thermodynamic and dynamic environment of trade-wind cumulus clouds.  Sondes were deployed along circular flight patterns (${\sim}\SI{222}{km}$ diameter) to enable estimation of area-averaged mesoscale divergence, vorticity, and vertical velocity.  The dataset provides both individual sounding profiles and a uniformly gridded product at $\SI{10}{m}$ vertical spacing.  \citet{george2021} assign each profile a quality control flag of ``good,'' ``bad,'' or ``ugly'' based on launch detection, profile completeness ($\geq$80\% for all variables), and plausibility of near-surface values.  A multiplicative correction factor of 1.06 is applied to relative humidity from HALO sondes to compensate for a systematic dry bias caused by insufficient reconditioning of the humidity sensor before flight.
+The Joint dropsonde Observations of the Atmosphere in tropical North atlaNtic meso-scale Environments (JOANNE) dataset \citep{george2021} contains 1215 dropsondes deployed during the EUREC\textsuperscript{4}A field campaign in January--February 2020.  Dropsondes were released from the German HALO and NOAA WP-3D aircraft over the tropical North Atlantic east of Barbados, with the goal of characterizing the thermodynamic and dynamic environment of trade-wind cumulus clouds.  Sondes were deployed along circular flight patterns (${\sim}\SI{222}{km}$ diameter) to enable estimation of area-averaged mesoscale divergence, vorticity, and vertical velocity.  The dataset provides both individual sounding profiles and a uniformly gridded product at $\SI{10}{m}$ vertical spacing.  \citet{george2021} assign each profile a quality control flag of ``good,'' ``bad,'' or ``ugly'' based on launch detection, profile completeness ($\geq$80\% for all variables), and plausibility of near-surface values.  A multiplicative correction factor of 1.06 was applied to relative humidity from HALO sondes to compensate for a systematic dry bias caused by insufficient reconditioning of the humidity sensor before flight.
 
 Here, only profiles flagged as ``good'' are used.
 
 \subsection{BEACH}
 
-The Barbados and Eastern Atlantic Combined High-altitude (BEACH) dropsonde dataset \citep{gloeckner2025} contains 1191 dropsondes deployed from the HALO aircraft during the ORCESTRA field campaign in August--September 2024.  Soundings were coordinated by the PERCUSION and MAESTRO subcampaigns and targeted the structure and variability of the Atlantic Inter-tropical Convergence Zone (ITCZ).  Circular flight patterns at approximately $\SI{14}{km}$ altitude (${\sim}\SI{260}{km}$ diameter) were flown over both the eastern and western tropical Atlantic, with flight tracks designed to coincide with EarthCARE satellite overpasses and to sample within and across the ITCZ.  Like JOANNE, the dataset includes a gridded product at $\SI{10}{m}$ spacing and derived mesoscale circulation diagnostics.  \citet{gloeckner2025} assign each profile an aggregate quality flag (GOOD, BAD, or UGLY) based on profile sparsity ($>$20\% of expected data present), profile extent above $\SI{8000}{m}$, near-surface coverage ($>$50 measurements in the lowest $\SI{1}{km}$), and physical plausibility of surface values.  Seventeen sondes were falsely configured by the manufacturer as minisondes rather than NRD41 (listed in supplement Table~E2 of \citealt{gloeckner2025}), and one sonde (0bd0e322, flight HALO-20240924a) had a factory-reset sensor module producing anomalous temperature and humidity.
+The Barbados and Eastern Atlantic Combined High-altitude (BEACH) dropsonde dataset \citep{gloeckner2025} contains 1191 dropsondes deployed from the HALO aircraft during the ORCESTRA field campaign in August--September 2024.  Soundings were coordinated by the PERCUSION and MAESTRO subcampaigns and targeted the structure and variability of the Atlantic Inter-tropical Convergence Zone (ITCZ).  Circular flight patterns at approximately $\SI{14}{km}$ altitude (${\sim}\SI{260}{km}$ diameter) were flown over both the eastern and western tropical Atlantic, with flight tracks designed to coincide with EarthCARE satellite overpasses and to sample within and across the ITCZ.  Like JOANNE, the dataset includes a gridded product at $\SI{10}{m}$ spacing and derived mesoscale circulation diagnostics.  \citet{gloeckner2025} assign each profile an aggregate quality flag (GOOD, BAD, or UGLY) based on profile sparsity, profile extent above $\SI{8000}{m}$, near-surface coverage, and physical plausibility of surface values.  Seventeen sondes were falsely configured by the manufacturer as minisondes rather than NRD41 (listed in supplement Table~E2 of \citealt{gloeckner2025}), and one sonde (0bd0e322, flight HALO-20240924a) had a factory-reset sensor module producing anomalous temperature and humidity.
 
 Here, only profiles flagged as ``GOOD'' are used, and the 17 misconfigured and 1 factory-reset sondes listed above are excluded.
 
@@ -54,7 +54,7 @@ Here, the corrected dataset is used as provided, with the exception of the warm-
 
 \subsection{ACTIVATE}
 
-The Aerosol Cloud meTeorology Interactions oVer the western ATlantic Experiment (ACTIVATE) dropsonde dataset \citep{vomel2023activate} contains 801 dropsondes released from NASA Langley's King Air research aircraft during 165 flights between February 2020 and June 2022.  The campaign studied aerosol--cloud interactions over the western North Atlantic, off the coast of the eastern United States and around Bermuda, sampling all seasons across six deployment periods.  The King Air flew at approximately $\SI{9}{km}$ altitude while a coordinated HU-25 Falcon characterized trace gases, aerosol, and cloud properties in the lower atmosphere.  Dropsonde profiles provide temperature, pressure, relative humidity, and horizontal and vertical winds between the surface and flight level.  \citet{vomel2023activate} processed all soundings through ASPEN and applied corrected launch times for 17 sondes affected by a synchronization error between the onboard computer and GPS time.  Twenty sondes with unreconditioned humidity sensors may exhibit a dry bias.
+The Aerosol Cloud meTeorology Interactions oVer the western ATlantic Experiment (ACTIVATE) dropsonde dataset \citep{vomel2023activate} contains 801 dropsondes released from NASA Langley's King Air research aircraft during 165 flights between February 2020 and June 2022.  The campaign studied aerosol--cloud interactions over the western North Atlantic, off the coast of the eastern United States and around Bermuda, sampling all seasons across six deployment periods.  The King Air flew at approximately $\SI{9}{km}$ altitude, and resulting dropsonde profiles provide temperature, pressure, relative humidity, and horizontal and vertical winds between the surface and flight level.  \citet{vomel2023activate} processed all soundings through ASPEN and applied corrected launch times for 17 sondes affected by a synchronization error between the onboard computer and GPS time.  Twenty sondes with unreconditioned humidity sensors may exhibit a dry bias.
 
 Here, profiles marked as degraded are excluded.  The corrected launch times are used where applicable, and only temperature, pressure, and wind from the 20 sondes with unreconditioned humidity sensors is retained.
 
@@ -66,15 +66,15 @@ Here, the archive is used as provided.
 
 \subsection{DYNAMO}
 
-The Dynamics of the Madden--Julian Oscillation (DYNAMO) upper-air sounding dataset \citep{ciesielski2014} contains nearly 26,000 soundings collected from an enhanced network of 72 rawinsonde sites and dropsonde data from 13 aircraft missions during October 2011 through March 2012.  The sounding network spanned the tropics from eastern Africa to the western Pacific, centered on the Indian Ocean where the MJO deep convection signal is first observed.  Six core sites in the central Indian Ocean formed two quadrilateral arrays with launch frequencies of up to eight soundings per day during the special observing period.  \citet{ciesielski2014} provide five processing levels (L0--L4) with increasingly refined quality control.  The Level~3 product incorporates solar radiation dry bias corrections for Vaisala RS92 daytime soundings, ship deck heating corrections, and inter-sonde-type humidity adjustments for the six different radiosonde models deployed across the network.
+The Dynamics of the Madden--Julian Oscillation (DYNAMO) field campaign \citep{ciesielski2014} investigated the initiation and propagation of the MJO over the tropical Indian Ocean during Fall 2011 through Spring 2012.  In addition to the campaign's extensive radiosonde network, 470 GPS dropsondes were released from the NOAA P-3 aircraft during 13 research flights between 9~November and 13~December 2011.  The P-3 was based at Diego Garcia and flew at an average altitude of $\SI{2}{km}$ (maximum ${\sim}\SI{8}{km}$), with missions sampling the central Indian Ocean ($14.5^\circ$S--$1.2^\circ$N, $69.8^\circ$--$80.9^\circ$E) for convective systems, boundary layer structure, and ITCZ variability.  Of the 470 deployed, 469 passed quality control and are included in the final dropsonde archive.  All profiles were processed through ASPEN; the Version~3 release incorporates a temperature-dependent dry bias correction to relative humidity that was applied to all RD94 dropsondes collected from 2010 onward.
 
-Here, only the dropsonde profiles are used, at the Level~3 correction tier.
+Here, 468 profiles from the dropsonde archive are used as provided.
 
 \subsection{SHOUT}
 
-The Sensing Hazards with Operational Unmanned Technology (SHOUT) project \citep{wick2020} deployed GPS dropsondes from NASA's Global Hawk unmanned aircraft during three field campaigns in 2015 and 2016.  The Global Hawk flew 15 missions sampling 6 tropical cyclones and 3 Pacific winter storms, with missions designed to target regions of high model forecast uncertainty identified through adjoint and ensemble sensitivity analyses.  The campaign evaluated whether high-altitude, long-endurance UAS observations could improve forecasts of high-impact weather events or help mitigate potential degradation from gaps in polar-orbiting satellite coverage.  All profiles were processed through ASPEN; the distributed dataset is a single quality-controlled product.
+The Sensing Hazards with Operational Unmanned Technology (SHOUT) project \citep{wick2020} deployed 638 GPS dropsondes from NASA's Global Hawk unmanned aircraft (cruise altitude ${\sim}\SI{18}{km}$) during three field campaigns in 2015 and 2016.  The Global Hawk flew 15 missions sampling 6 tropical cyclones and 3 Pacific winter storms, with missions designed to target regions of high model forecast uncertainty identified through adjoint and ensemble sensitivity analyses.  All profiles were processed through ASPEN.
 
-Here, the archive is used as provided.
+We use the archive as provided.
 
 \subsection{AR Recon}
 
@@ -86,70 +86,44 @@ Here, the archive is used as provided.
 
 The output grid is a one-dimensional partition of altitude into cells of uniform thickness $\Delta z$.  Cell edges are placed at
 \begin{align}
-    z_k = z_{\min} + k\,\Delta z, \qquad k = 0, 1, \ldots, N, \label{eq:edges}
+    z_k = k\,\Delta z, \qquad k = 0, 1, \ldots, N, \label{eq:edges}
 \end{align}
-where $z_{\min}$ is the lowest altitude of interest and $N = \lfloor(z_{\max} - z_{\min})/\Delta z\rfloor$ is the number of cells.  The $k$-th cell spans the half-open interval $[z_k,\, z_{k+1})$.  Cell-center altitudes, used as the coordinate for all output variables, are
+where $N = \lfloor z_{\max}/\Delta z\rfloor$ is the number of cells.  The $k$-th cell spans the half-open interval $[z_k,\, z_{k+1})$.  Cell-center altitudes, used as the coordinate for all output variables, are
 \begin{align}
-    \bar{z}_k = \tfrac{1}{2}(z_k + z_{k+1}) = z_{\min} + (k + \tfrac{1}{2})\,\Delta z. \label{eq:centers}
+    \bar{z}_k = (k + \tfrac{1}{2})\,\Delta z. \label{eq:centers}
 \end{align}
-The default grid spacing is $\Delta z = \SI{10}{m}$, chosen to be finer than the effective vertical resolution of most modern radiosondes and dropsondes (of order $\SI{200}{m}$) so that no information is lost during regridding.  The altitude range is $z_{\min} = \SI{0}{m}$ to $z_{\max} = \SI{20}{km}$ for all dropsonde datasets and $z_{\max} = \SI{40}{km}$ for IGRA radiosondes, which routinely ascend into the stratosphere.
+The grid spacing is set to $\Delta z = \SI{10}{m}$, chosen to be finer than the effective vertical resolution of most modern radiosondes and dropsondes (of order $\SI{200}{m}$) so that no information is lost during regridding.  The grid extends to $z_{\max} = \SI{20}{km}$ for all dropsonde datasets and $z_{\max} = \SI{40}{km}$ for IGRA radiosondes, which routinely ascend into the stratosphere.
 
-For each grid cell, the regridded value of a variable is the arithmetic mean of all measurements whose altitude falls within that cell.  If a cell contains no measurements, the value is recorded as missing.  Observations that are themselves missing or flagged are excluded.  This procedure is applied independently to each variable, so missing-value patterns may differ between variables.
+For each grid cell, the regridded value of a variable is equal to the arithmetic mean of all measurements whose altitude falls within that cell.  If a cell contains no measurements, the value is recorded as missing, and this procedure is applied independently to each variable.
 
 All dropsonde datasets report geometric (GPS-derived) altitude.  IGRA reports geopotential height, which is converted to geometric altitude via $z = R_e H / (R_e - H)$, where $H$ is geopotential height and $R_e = \SI{6371}{km}$ is the mean Earth radius.  The difference is approximately 0.5\% at $\SI{30}{km}$ (${\sim}\SI{100}{m}$).
 
-\section{Effective vertical resolution} \label{sec:resolution}
+The following variables are bin-averaged onto the uniform grid (Tab. \ref{tab:variables}): zonal and meridional wind ($u$, $v$), pressure ($p$), temperature ($T$), and relative humidity ($\mathrm{RH}$).  When a dataset provides the water vapor mixing ratio $q$ directly rather than relative humidity, $q$ is bin-averaged in place of $\mathrm{RH}$ and no subsequent diagnosis is needed. 
 
-The effective vertical resolution of a sonde profile is set by the combination of the sensor time constant, any post-processing smoothing, and the fall or ascent speed.  For the dropsonde datasets considered here, the dominant factor is the B-spline smoothing applied by the ASPEN processing software \citep{vomel2023}, not the sensor response times.
 
-Dropsondes descend at approximately $\SI{11}{m\,s^{-1}}$ near the surface and $\SI{21}{m\,s^{-1}}$ near flight level (${\sim}\SI{13}{km}$), with the variation driven by the altitude dependence of air density.  Radiosondes ascend at approximately $\SI{5}{m\,s^{-1}}$.  The ASPEN smoothing wavelength varies by dataset: JOANNE applies a $\SI{10}{s}$ B-spline, while OTREC, ACTIVATE, and BEACH use $\SI{5}{s}$.  The resulting effective vertical resolutions are summarized in Table~\ref{tab:resolution}.
+Five additional variables are diagnosed from the regridded fields (Tab. \ref{tab:variables}).  Diagnosis is performed after bin averaging so that the thermodynamic relations are evaluated on the gridded values rather than on individual high-frequency measurements. 
 
 \begin{table}[h]
 \centering
-\caption{Effective vertical resolution by platform and ASPEN smoothing configuration.  The resolution range reflects the variation of fall speed with altitude.  Humidity resolution degrades at low temperatures due to the strongly temperature-dependent time constant of the thin-film capacitor sensor (up to ${\sim}\SI{60}{s}$ at flight level), but is smoothing-limited in the lower and middle troposphere.}
-\label{tab:resolution}
-\begin{tabular}{llll}
+\caption{Output variables.  Reported variables are bin-averaged directly; diagnosed variables are computed from the gridded fields after bin averaging.}
+\label{tab:variables}
+\begin{tabular}{lllll}
 \toprule
-Platform & Smoothing & Speed & Eff.\ resolution \\
+Variable & Description & Units & Type \\
 \midrule
-Dropsonde ($\SI{5}{s}$ ASPEN)  & $\SI{5}{s}$  & $11$--$\SI{21}{m\,s^{-1}}$ & $55$--$\SI{105}{m}$ \\
-Dropsonde ($\SI{10}{s}$ ASPEN) & $\SI{10}{s}$ & $11$--$\SI{21}{m\,s^{-1}}$ & $110$--$\SI{210}{m}$ \\
-Radiosonde                     & \textcolor{red}{FIGURE OUT RADIOSONDE SMOOTHING} & ${\sim}\SI{5}{m\,s^{-1}}$ & \textcolor{red}{TBD} \\
+\texttt{u}          & Zonal wind component             & \si{m\per s}    & Reported \\
+\texttt{v}          & Meridional wind component         & \si{m\per s}    & Reported \\
+\texttt{p}          & Pressure                          & \si{Pa}         & Reported \\
+\texttt{T}          & Temperature                       & \si{K}          & Reported \\
+\texttt{RH}         & Relative humidity                 & \%              & Reported \\
+\texttt{q}          & Water vapor mixing ratio          & \si{kg\per kg}  & Diagnosed (Eq.~\ref{eq:q}) \\
+\texttt{theta}      & Potential temperature              & \si{K}          & Diagnosed (Eq.~\ref{eq:theta}) \\
+\texttt{theta\_e}   & Equivalent potential temperature   & \si{K}          & Diagnosed (Eq.~\ref{eq:theta_e}) \\
+\texttt{MSE}        & Moist static energy               & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:MSE}) \\
+\texttt{DSE}        & Dry static energy                 & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:DSE}) \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\noindent The $\SI{10}{m}$ grid spacing is therefore finer than the effective resolution of all dropsonde products and comparable to the native resolution of radiosondes, ensuring that regridding does not discard information.  Structure functions computed from the regridded profiles should not be interpreted at vertical separations smaller than the effective resolution listed in Table~\ref{tab:resolution}.
-
-\section{Variables} \label{sec:variables}
-
-\subsection{Directly regridded variables}
-
-The following variables are bin-averaged onto the uniform grid:
-
-\begin{center}
-\begin{tabular}{lll}
-\toprule
-Symbol & Description & Units \\
-\midrule
-$u$    & Zonal wind component         & \si{m\per s} \\
-$v$    & Meridional wind component     & \si{m\per s} \\
-$p$    & Pressure                      & \si{Pa} \\
-$T$    & Temperature                   & \si{K} \\
-$\mathrm{RH}$  & Relative humidity     & \% \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent Vertical wind is not retained.  Dropsonde vertical wind estimates are derived from the GPS fall rate after subtracting a modeled still-air fall speed, and the resulting uncertainty is too large for the analyses intended here.
-
-When a dataset provides the water vapor mixing ratio $q$ directly rather than relative humidity, $q$ is bin-averaged in place of $\mathrm{RH}$ and no subsequent diagnosis is needed.
-
-\subsection{Diagnosed variables} \label{sec:diagnosed}
-
-Five additional variables are diagnosed from the regridded fields.  Diagnosis is performed \emph{after} bin averaging so that the thermodynamic relations are evaluated on the gridded values rather than on individual high-frequency measurements.  This ordering is consistent with the interpretation that each grid cell represents a local mean state.
-
-\subsubsection{Water vapor mixing ratio}
 
 When relative humidity is the reported moisture variable, the mixing ratio is computed from the regridded $\mathrm{RH}$, $T$, and $p$ fields.  The saturation vapor pressure over liquid water $e_s$ is obtained from the August--Roche--Magnus formula,
 \begin{align}
@@ -159,9 +133,7 @@ where $T_c = T - \SI{273.15}{K}$ is the temperature in degrees Celsius and $e_s$
 \begin{align}
     q = \frac{0.622\, e}{p - e}. \label{eq:q}
 \end{align}
-The constant $0.622$ is the ratio of the molecular mass of water to the mean molecular mass of dry air.
 
-\subsubsection{Potential temperature}
 
 Potential temperature is computed from Poisson's equation,
 \begin{align}
@@ -169,7 +141,6 @@ Potential temperature is computed from Poisson's equation,
 \end{align}
 where $p_0 = \SI{100000}{Pa}$ is the reference pressure and $\kappa = R_d / c_p \approx 0.2854$ is the Poisson constant, with $R_d = \SI{287.04}{J\,kg^{-1}\,K^{-1}}$ the specific gas constant for dry air and $c_p = \SI{1005.7}{J\,kg^{-1}\,K^{-1}}$ the isobaric specific heat.
 
-\subsubsection{Moist static energy}
 
 Moist static energy combines sensible heat, gravitational potential energy, and latent heat into a single conserved quantity for moist adiabatic processes:
 \begin{align}
@@ -177,14 +148,12 @@ Moist static energy combines sensible heat, gravitational potential energy, and 
 \end{align}
 where $g = \SI{9.807}{m\,s^{-2}}$ is gravitational acceleration, $L_v = \SI{2.501e6}{J\,kg^{-1}}$ is the latent heat of vaporization at $\SI{0}{\celsius}$, and $\bar{z}_k$ is the cell-center altitude from Eq.~\ref{eq:centers}.
 
-\subsubsection{Dry static energy}
 
 Dry static energy is conserved for dry adiabatic processes:
 \begin{align}
     s = c_p T + g\bar{z}_k. \label{eq:DSE}
 \end{align}
 
-\subsubsection{Equivalent potential temperature}
 
 Equivalent potential temperature is conserved for saturated adiabatic processes.  It is approximated following \citet{bolton1980}:
 \begin{align}
@@ -195,81 +164,64 @@ where $T_L$ is the temperature at the lifting condensation level, estimated as
     T_L = \frac{1}{\displaystyle\frac{1}{T - 55} - \frac{\ln(\mathrm{RH}/100)}{2840}} + 55. \label{eq:TL}
 \end{align}
 
-\section{Output format} \label{sec:output}
+\subsection{Output format} \label{sec:output}
 
-The regridded data are stored as one NetCDF-4 file per source dataset.  Each file has two dimensions: \texttt{sonde}, indexing individual profiles, and \texttt{altitude}, indexing the uniform grid cells.
-
-\subsection{Coordinates}
-
+The regridded data are stored as one NetCDF-4 file per source dataset.  Each file has three dimensions: \texttt{launch\_location}, \texttt{launch\_time}, and \texttt{altitude}.
+For radiosonde datasets, every launch from a given station shares the \texttt{launch\_location} coordinate. The size of the \texttt{launch\_time} dimension is 1 for dropsonde datasets given that each dropsonde is launched from a different spatial location.
 The \texttt{altitude} coordinate contains the cell-center altitudes $\bar{z}_k$ from Eq.~\ref{eq:centers}, in meters above mean sea level.
 
-\subsection{Per-sonde metadata}
-
-Each profile carries the following scalar metadata along the \texttt{sonde} dimension:
+Each launch location carries the following metadata:
 
 \begin{center}
 \begin{tabular}{lll}
 \toprule
 Variable & Type & Description \\
 \midrule
-\texttt{launch\_time}  & datetime & Date and time of profile start (launch or drop) \\
 \texttt{launch\_lat}   & float    & Latitude at profile start [\si{\degree}N] \\
 \texttt{launch\_lon}   & float    & Longitude at profile start [\si{\degree}E] \\
-\texttt{sonde\_id}     & string   & Provider's sonde or profile identifier \\
-\texttt{station\_id}   & string   & Station identifier (radiosondes) or flight ID (dropsondes) \\
+\texttt{sonde\_id}     & string   & Provider's sonde or profile identifier (dropsonde datasets) \\
+\texttt{station\_id}   & string   & Station identifier (radiosonde datasets) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release, or the first GPS measurement in the profile when explicit release coordinates are not available.  For radiosondes, they refer to the launch site.
+\noindent Each profile has either \texttt{sonde\_id} or \texttt{station\_id}, not both.  For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release, or the first GPS measurement in the profile when explicit release coordinates are not available.  For radiosondes, they refer to the launch site.
 
 \subsection{Data variables}
 
-All regridded and diagnosed variables are stored with shape (\texttt{sonde}, \texttt{altitude}).  Missing values (grid cells with no measurements) are stored as NaN.
+All regridded and diagnosed variables are stored with shape (\texttt{launch\_location}, \texttt{launch\_time}, \texttt{altitude}).  Missing values (grid cells with no measurements) are stored as NaN.
 
-\begin{center}
-\begin{tabular}{lll}
-\toprule
-Variable & Description & Units \\
-\midrule
-\texttt{u}          & Zonal wind component             & \si{m\per s} \\
-\texttt{v}          & Meridional wind component         & \si{m\per s} \\
-\texttt{p}          & Pressure                          & \si{Pa} \\
-\texttt{T}          & Temperature                       & \si{K} \\
-\texttt{RH}         & Relative humidity                 & \% \\
-\texttt{q}          & Water vapor mixing ratio          & \si{kg\per kg} \\
-\texttt{theta}      & Potential temperature              & \si{K} \\
-\texttt{theta\_e}   & Equivalent potential temperature   & \si{K} \\
-\texttt{MSE}        & Moist static energy               & \si{J\per kg} \\
-\texttt{DSE}        & Dry static energy                 & \si{J\per kg} \\
-\bottomrule
-\end{tabular}
-\end{center}
 
-\noindent Variables that depend on relative humidity (\texttt{q}, \texttt{theta\_e}, \texttt{MSE}) are entirely NaN for profiles where RH is unavailable---for example, the 20 ACTIVATE sondes with unreconditioned humidity sensors, or IGRA stations that do not report humidity.  \texttt{theta} requires temperature and pressure; \texttt{DSE} requires only temperature and altitude.  Both are present for all profiles.
 
 \section{Validation} \label{sec:validation}
 
-Two of the dropsonde datasets---JOANNE \citep{george2021} and BEACH \citep{gloeckner2025}---provide both individual sounding profiles and a uniformly gridded product at $\SI{10}{m}$ vertical spacing produced by the data providers.  These gridded products serve as natural validation targets: applying the bin-averaging algorithm described here to the individual profiles and comparing the result against the official gridded product tests whether the two procedures yield consistent output.
+Two of the dropsonde datasets---JOANNE \citep{george2021} and BEACH \citep{gloeckner2025}---provide both individual sounding profiles and a uniformly gridded product at $\SI{10}{m}$ vertical spacing produced by the data providers. 
+Agreement between the two gridded products is expected to be close but not exact given that the provider gridded products use interpolation rather than bin averaging, and in the case of BEACH use slightly different filtering criteria.
 
-Agreement is not expected to be exact.  The provider gridded products use interpolation rather than bin averaging, apply additional quality control beyond what is present in the individual profiles, and in the case of BEACH use slightly different filtering criteria.  The purpose of the comparison is to verify broad consistency with an independent processing chain.
+For each variable, the comparison is performed per sounding at all grid cells where both products report non-missing values.  Across all cells, the median RMSD and mean bias between our regridded product and the official products are negligible (Tab. \ref{tab:validation}), with the possible exception of the BEACH pressure variable. A small discrepancy is to be expected here given that the gridded pressure variable from \citet{gloeckner2025} obtained pressure through integrating the thermodynamic profile, not interpolating measured pressure values.
 
-For each variable, the comparison is performed per sounding at all grid cells where both products report non-missing values.  For each sounding, the RMSD and mean bias (bin-averaged minus provider-gridded) are computed over the matched cells.  The summary statistics reported are the \emph{median} RMSD and \emph{mean} bias across all matched soundings.  These are then compared against thresholds based on the measurement uncertainty of the Vaisala RD41 dropsonde [\textcolor{red}{CITATION NEEDED}]:
-
-\begin{center}
-\begin{tabular}{llll}
+\begin{table}[h]
+\centering
+\caption{Validation statistics comparing bin-averaged profiles to provider-gridded products.  RMSD and bias are computed per sounding over matched non-missing grid cells; the table reports the median RMSD and mean bias across all matched sondes.}
+\label{tab:validation}
+\begin{tabular}{llrrr}
 \toprule
-Variable & Instrument repeatability & RMSD threshold \\
+Dataset & Variable & Median RMSD & Mean bias & Units \\
 \midrule
-$T$               & \SI{0.1}{K}      & \SI{0.5}{K} \\
-$u$, $v$          & \SI{0.15}{m\per s} & \SI{0.5}{m\per s} \\
-$\mathrm{RH}$     & 2\%              & 5\% \\
-$p$               & \SI{0.4}{hPa}    & \SI{1}{hPa} \\
+JOANNE (1068 sondes) & $T$             & 0.012  & $<$0.001      & \si{K} \\
+                      & $u$             & 0.025  & $-$0.000      & \si{m\per s} \\
+                      & $v$             & 0.024  & $<$0.001      & \si{m\per s} \\
+                      & $\mathrm{RH}$   & 0.12   & $<$0.001      & \% \\
+                      & $p$             & 11.3   & $-$0.003      & \si{Pa} \\
+\midrule
+BEACH (976 sondes)    & $T$             & 0.24   & $-$0.18       & \si{K} \\
+                      & $u$             & 0.27   & $-$0.023      & \si{m\per s} \\
+                      & $v$             & 0.26   & $<$0.001      & \si{m\per s} \\
+                      & $\mathrm{RH}$   & 1.65   & $-$0.091      & \% \\
+                      & $p$             & 137    & $-$120        & \si{Pa} \\
 \bottomrule
 \end{tabular}
-\end{center}
-
-\noindent The thresholds are set at several times the instrument repeatability to accommodate the genuine methodological difference between interpolation and bin averaging, particularly in cells with sparse measurements where the two approaches can diverge.  If the RMSD for each variable falls within these bounds and the mean bias is small relative to the RMSD, the regridding algorithm is considered consistent with the provider processing for the purposes of this study.
+\end{table}
 
 \bibliographystyle{apalike}
 \bibliography{references}
