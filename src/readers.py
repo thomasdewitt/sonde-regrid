@@ -128,6 +128,8 @@ def read_joanne(data_dir):
 # BEACH sonde_qc encoding: 0=GOOD, 1=BAD, 2=UGLY
 # 17 misconfigured sondes (supplement Table E2 of Gloeckner et al. 2025)
 # and factory-reset sonde 0bd0e322 are already excluded by sonde_qc != 0.
+# Verified: 0bd0e322 has sonde_qc=1; all 17+1 fall within the 145 non-GOOD
+# sondes (14 BAD + 131 UGLY out of 1121 total zarr stores).
 
 def read_beach(data_dir):
     """Read BEACH Level 2 dropsonde profiles (Zarr).

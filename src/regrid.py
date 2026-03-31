@@ -75,7 +75,7 @@ def bin_average(altitude, values, edges):
     return gridded
 
 
-def regrid_sonde(altitude, variables, z_min=0.0, z_max=30000.0, dz=DEFAULT_DZ):
+def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ):
     """Regrid a single sonde profile and diagnose derived variables.
 
     Parameters
