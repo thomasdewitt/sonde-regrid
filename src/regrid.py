@@ -75,7 +75,24 @@ def bin_average(altitude, values, edges):
     return gridded
 
 
-def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ):
+def bin_average_time(altitude, times, edges):
+    """Bin-average datetime64 values onto a uniform grid.
+
+    Converts to float (ns since epoch), bin-averages, converts back.
+    Returns NaT where no valid observations exist.
+    """
+    # Convert datetime64 → float64 nanoseconds, replacing NaT with NaN
+    times_ns = times.astype("datetime64[ns]")
+    ns = np.where(np.isnat(times_ns), np.nan, times_ns.astype(np.int64).astype(np.float64))
+    avg_ns = bin_average(altitude, ns, edges)
+    # Convert back: NaN → NaT
+    result = np.full(len(avg_ns), np.datetime64("NaT"), dtype="datetime64[ns]")
+    valid = np.isfinite(avg_ns)
+    result[valid] = avg_ns[valid].astype("int64").astype("datetime64[ns]")
+    return result
+
+
+def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None):
     """Regrid a single sonde profile and diagnose derived variables.
 
     Parameters
@@ -90,12 +107,15 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ):
         Altitude bounds [m] for the output grid.
     dz : float
         Grid spacing [m].
+    obs_time : ndarray of datetime64, optional
+        Per-observation timestamps, same length as altitude.
 
     Returns
     -------
     ds : xarray.Dataset
         Regridded profile on cell-center altitudes, with both directly
-        averaged and diagnosed variables.
+        averaged and diagnosed variables.  Includes "observation_time"
+        if obs_time is provided.
     """
     edges = make_grid(z_min, z_max, dz)
     z_centers = 0.5 * (edges[:-1] + edges[1:])
@@ -135,5 +155,8 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ):
         coords={"altitude": z_centers},
     )
     ds["altitude"].attrs = {"units": "m", "long_name": "altitude above mean sea level"}
+
+    if obs_time is not None:
+        ds["observation_time"] = ("altitude", bin_average_time(altitude, obs_time, edges))
 
     return ds

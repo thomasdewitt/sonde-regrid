@@ -32,7 +32,7 @@ The simplicity of this approach is deliberate. If interpolation was used, artifi
 
 The Integrated Global Radiosonde Archive \citep{durre2006} is a quality-assured compilation of radiosonde observations from more than 1500 globally distributed stations, with records extending from the 1960s to the present.  Observations typically include pressure, temperature, dewpoint depression, geopotential height, wind direction, and wind speed.  IGRA integrates data from disparate sources and applies automated quality assurance that removes measurements failing checks for physical implausiblity, internal inconsistency, climatological outliers, and temporal inconsistency.
 
-Here, the data from 2000-2025 are used as provided. 
+We consider data from 2025. To reduce the volume of data, we only consider soundings launched every 10th day (e.g. DOY 1, 11, 21, 31, etc.).
 
 \subsection{JOANNE}
 
@@ -111,16 +111,17 @@ Five additional variables are diagnosed from the regridded fields (Tab. \ref{tab
 \toprule
 Variable & Description & Units & Type \\
 \midrule
-\texttt{u}          & Zonal wind component             & \si{m\per s}    & Reported \\
-\texttt{v}          & Meridional wind component         & \si{m\per s}    & Reported \\
-\texttt{p}          & Pressure                          & \si{Pa}         & Reported \\
-\texttt{T}          & Temperature                       & \si{K}          & Reported \\
-\texttt{RH}         & Relative humidity                 & \%              & Reported \\
-\texttt{q}          & Water vapor mixing ratio          & \si{kg\per kg}  & Diagnosed (Eq.~\ref{eq:q}) \\
-\texttt{theta}      & Potential temperature              & \si{K}          & Diagnosed (Eq.~\ref{eq:theta}) \\
-\texttt{theta\_e}   & Equivalent potential temperature   & \si{K}          & Diagnosed (Eq.~\ref{eq:theta_e}) \\
-\texttt{MSE}        & Moist static energy               & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:MSE}) \\
-\texttt{DSE}        & Dry static energy                 & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:DSE}) \\
+\texttt{u}                  & Zonal wind component             & \si{m\per s}    & Reported \\
+\texttt{v}                  & Meridional wind component         & \si{m\per s}    & Reported \\
+\texttt{p}                  & Pressure                          & \si{Pa}         & Reported \\
+\texttt{T}                  & Temperature                       & \si{K}          & Reported \\
+\texttt{RH}                 & Relative humidity                 & \%              & Reported \\
+\texttt{observation\_time}  & Measurement time at each level    & datetime        & Reported \\
+\texttt{q}                  & Water vapor mixing ratio          & \si{kg\per kg}  & Diagnosed (Eq.~\ref{eq:q}) \\
+\texttt{theta}              & Potential temperature              & \si{K}          & Diagnosed (Eq.~\ref{eq:theta}) \\
+\texttt{theta\_e}           & Equivalent potential temperature   & \si{K}          & Diagnosed (Eq.~\ref{eq:theta_e}) \\
+\texttt{MSE}                & Moist static energy               & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:MSE}) \\
+\texttt{DSE}                & Dry static energy                 & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:DSE}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -166,8 +167,8 @@ where $T_L$ is the temperature at the lifting condensation level, estimated as
 
 \subsection{Output format} \label{sec:output}
 
-The regridded data are stored as one NetCDF-4 file per source dataset.  Each file has three dimensions: \texttt{launch\_location}, \texttt{launch\_time}, and \texttt{altitude}.
-For radiosonde datasets, every launch from a given station shares the \texttt{launch\_location} coordinate. The size of the \texttt{launch\_time} dimension is 1 for dropsonde datasets given that each dropsonde is launched from a different spatial location.
+The regridded data are stored as one NetCDF-4 file per source dataset, or one file per year for IGRA.  Each file has three dimensions: \texttt{launch\_location}, \texttt{sounding}, and \texttt{altitude}.
+For radiosonde datasets, every launch from a given station shares the \texttt{launch\_location} coordinate. The size of the \texttt{sounding} dimension is 1 for dropsonde datasets given that each dropsonde is launched from a different spatial location.
 The \texttt{altitude} coordinate contains the cell-center altitudes $\bar{z}_k$ from Eq.~\ref{eq:centers}, in meters above mean sea level.
 
 Each launch location carries the following metadata:
@@ -177,19 +178,21 @@ Each launch location carries the following metadata:
 \toprule
 Variable & Type & Description \\
 \midrule
-\texttt{launch\_lat}   & float    & Latitude at profile start [\si{\degree}N] \\
-\texttt{launch\_lon}   & float    & Longitude at profile start [\si{\degree}E] \\
-\texttt{sonde\_id}     & string   & Provider's sonde or profile identifier (dropsonde datasets) \\
-\texttt{station\_id}   & string   & Station identifier (radiosonde datasets) \\
+\texttt{launch\_time}        & datetime & Date and time of sounding launch (\texttt{launch\_location}, \texttt{sounding}) \\
+\texttt{observation\_time}  & datetime & Observation time at each altitude level (\texttt{launch\_location}, \texttt{sounding}, \texttt{altitude}) \\
+\texttt{launch\_lat}        & float    & Latitude at profile start [\si{\degree}N] \\
+\texttt{launch\_lon}        & float    & Longitude at profile start [\si{\degree}E] \\
+\texttt{sonde\_id}          & string   & Provider's sonde or profile identifier (dropsonde datasets) \\
+\texttt{station\_id}        & string   & Station identifier (radiosonde datasets) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent Each profile has either \texttt{sonde\_id} or \texttt{station\_id}, not both.  For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release, or the first GPS measurement in the profile when explicit release coordinates are not available.  For radiosondes, they refer to the launch site.
+\noindent The \texttt{observation\_time} variable records the actual measurement time at each altitude level, bin-averaged within each grid cell.  Each profile has either \texttt{sonde\_id} or \texttt{station\_id}, not both.  For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release, or the first GPS measurement in the profile when explicit release coordinates are not available.  For radiosondes, they refer to the launch site.
 
 \subsection{Data variables}
 
-All regridded and diagnosed variables are stored with shape (\texttt{launch\_location}, \texttt{launch\_time}, \texttt{altitude}).  Missing values (grid cells with no measurements) are stored as NaN.
+All regridded and diagnosed variables are stored with shape (\texttt{launch\_location}, \texttt{sounding}, \texttt{altitude}).  Missing values (grid cells with no measurements) are stored as NaN.
 
 
 

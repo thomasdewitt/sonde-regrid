@@ -110,6 +110,7 @@ def read_joanne(data_dir):
             "launch_lat": float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan)),
             "launch_lon": float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan)),
             "altitude": altitude,
+            "obs_time": ds["time"].values,
             "p": p,
             "T": T,
             "RH": rh_frac * 100.0,  # convert to %
@@ -171,6 +172,7 @@ def read_beach(data_dir):
             "launch_lat": _first_finite(ds["lat"].values) if "lat" in ds.coords else np.nan,
             "launch_lon": _first_finite(ds["lon"].values) if "lon" in ds.coords else np.nan,
             "altitude": altitude,
+            "obs_time": ds.coords["time"].values if "time" in ds.coords else None,
             "p": p,
             "T": T,
             "RH": rh_frac * 100.0,  # convert to %
@@ -233,6 +235,7 @@ def read_otrec(data_dir):
             "launch_lat": launch_lat,
             "launch_lon": launch_lon,
             "altitude": altitude,
+            "obs_time": ds["time"].values if "time" in ds else None,
             "p": p,
             "T": T,
             "RH": rh,
@@ -355,12 +358,21 @@ def read_activate(data_dir):
         if ts_match and ts_match.group(1) in ACTIVATE_UNCONDITIONED_RH:
             rh = None
 
+        # Observation time: Time_Start is UTC seconds from midnight.
+        # Combine with launch date to get absolute datetime.
+        obs_time = None
+        if "Time_Start" in col_idx and launch_time is not None:
+            secs = _replace_missing(data[:, col_idx["Time_Start"]], MISSING_ICT)
+            launch_date = launch_time.astype("datetime64[D]")
+            obs_time = launch_date + (secs * 1e9).astype("timedelta64[ns]")
+
         profiles.append({
             "sonde_id": sonde_id,
             "launch_time": launch_time,
             "launch_lat": launch_lat,
             "launch_lon": launch_lon,
             "altitude": altitude,
+            "obs_time": obs_time,
             "p": p,
             "T": T,
             "RH": rh,
@@ -463,12 +475,24 @@ def _parse_eol(fpath):
     u = _replace_missing(data[:, 8], MISSING)             # m/s
     v = _replace_missing(data[:, 9], MISSING)             # m/s
 
+    # Observation time: hh (col 1), mm (col 2), ss (col 3) → absolute datetime.
+    # These are clock times (UTC), not elapsed. Combine with launch date.
+    obs_time = None
+    if launch_time is not None:
+        hh = _replace_missing(data[:, 1], MISSING)
+        mm = _replace_missing(data[:, 2], MISSING)
+        ss = _replace_missing(data[:, 3], MISSING)
+        launch_date = launch_time.astype("datetime64[D]")
+        secs = hh * 3600 + mm * 60 + ss
+        obs_time = launch_date + (secs * 1e9).astype("timedelta64[ns]")
+
     return {
         "sonde_id": sonde_id,
         "launch_time": launch_time,
         "launch_lat": launch_lat,
         "launch_lon": launch_lon,
         "altitude": altitude,
+        "obs_time": obs_time,
         "p": p,
         "T": T,
         "RH": rh,
@@ -600,12 +624,19 @@ def _parse_frd(fpath):
     u = _replace_missing(data[:, 8], MISSING)               # m/s
     v = _replace_missing(data[:, 9], MISSING)               # m/s
 
+    # Observation time: column 1 is elapsed seconds from launch
+    obs_time = None
+    if launch_time is not None:
+        elapsed_s = _replace_missing(data[:, 1], MISSING)
+        obs_time = launch_time + (elapsed_s * 1e9).astype("timedelta64[ns]")
+
     return {
         "sonde_id": sonde_id,
         "launch_time": launch_time,
         "launch_lat": launch_lat,
         "launch_lon": launch_lon,
         "altitude": altitude,
+        "obs_time": obs_time,
         "p": p,
         "T": T,
         "RH": rh,
@@ -679,12 +710,20 @@ def read_dynamo(data_dir):
         launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
         launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
 
+        # Observation time: time_offset is hours from launch
+        obs_time = None
+        if launch_time is not None and "time_offset" in ds:
+            offset_hrs = ds["time_offset"].values.astype(np.float64)
+            offset_hrs[offset_hrs <= -999] = np.nan
+            obs_time = launch_time + (offset_hrs * 3.6e12).astype("timedelta64[ns]")
+
         profiles.append({
             "sonde_id": fname.replace(".nc", ""),
             "launch_time": launch_time,
             "launch_lat": launch_lat,
             "launch_lon": launch_lon,
             "altitude": altitude,
+            "obs_time": obs_time,
             "p": p,
             "T": T,
             "RH": rh,
@@ -716,12 +755,21 @@ def _parse_igra_value(text):
         return np.nan
 
 
-def read_igra(data_dir, year_min=2000, year_max=2025):
+def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1):
     """Read IGRA v2 radiosonde profiles from zipped station files.
 
-    Only soundings from year_min to year_max (inclusive) are retained.
-    Standard and surface levels are included; tropopause/other markers
-    are retained as well since they contain valid measurements.
+    Parameters
+    ----------
+    data_dir : str
+        Path to directory containing *-data.txt.zip files.
+    year : int, optional
+        If given, only soundings from this year are retained (overrides
+        year_min/year_max).
+    year_min, year_max : int
+        Year range (inclusive).  Ignored if year is set.
+    subsample : int
+        Keep only soundings whose day-of-year satisfies
+        (DOY - 1) % subsample == 0.  Default 1 keeps all soundings.
 
     IGRA stores:
       pressure   [Pa]
@@ -733,6 +781,10 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
 
     All converted to standard units on output.
     """
+    if year is not None:
+        year_min = year
+        year_max = year
+
     pattern = os.path.join(data_dir, "*-data.txt.zip")
     zips = sorted(glob.glob(pattern))
     profiles = []
@@ -759,7 +811,7 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
             # Cols: 2-12  14-17 19-20 22-23 25-26 28-31 33-36 ...
             header = line
             try:
-                year = int(header[13:17])
+                year_val = int(header[13:17])
                 month = int(header[18:20])
                 day = int(header[21:23])
                 hour = int(header[24:26])
@@ -774,13 +826,24 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
             launch_lon = lon_raw / 10000.0
 
             # Skip soundings outside year range
-            if year < year_min or year > year_max:
+            if year_val < year_min or year_val > year_max:
                 i += 1 + numlev
                 continue
 
+            # Subsample by day-of-year
+            if subsample > 1:
+                try:
+                    doy = datetime(year_val, month, day).timetuple().tm_yday
+                except ValueError:
+                    i += 1 + numlev
+                    continue
+                if (doy - 1) % subsample != 0:
+                    i += 1 + numlev
+                    continue
+
             if hour in (0, 6, 12, 18):
                 try:
-                    launch_time = np.datetime64(datetime(year, month, day, hour))
+                    launch_time = np.datetime64(datetime(year_val, month, day, hour))
                 except ValueError:
                     launch_time = None
             else:
@@ -794,6 +857,7 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
             rhs = []
             wdirs = []
             wspds = []
+            etimes = []
 
             for j in range(1, numlev + 1):
                 if i + j >= len(lines):
@@ -806,12 +870,21 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
                 # LVLTYP1:1  LVLTYP2:2  ETIME:3-8  PRESS:10-15  PFLAG:16
                 # GPH:17-21  ZFLAG:22  TEMP:23-27  TFLAG:28
                 # RH:29-33  DPDP:35-39  WDIR:41-45  WSPD:47-51
+                etime_val = _parse_igra_value(dline[3:9])    # MMMSS format
                 press_val = _parse_igra_value(dline[9:16])   # includes flag at pos 16
                 gph_val = _parse_igra_value(dline[16:22])    # includes flag at pos 22
                 temp_val = _parse_igra_value(dline[22:28])   # includes flag at pos 28
                 rh_val = _parse_igra_value(dline[28:34]) if len(dline) > 33 else np.nan
                 wdir_val = _parse_igra_value(dline[40:45]) if len(dline) > 44 else np.nan
                 wspd_val = _parse_igra_value(dline[46:51]) if len(dline) > 50 else np.nan
+
+                # ETIME is MMMSS: minutes * 100 + seconds
+                if np.isfinite(etime_val):
+                    mins = int(etime_val) // 100
+                    secs = int(etime_val) % 100
+                    etimes.append(mins * 60.0 + secs)
+                else:
+                    etimes.append(np.nan)
 
                 pressures.append(press_val)          # already in Pa
                 altitudes.append(gph_val)            # m (geopotential height)
@@ -833,13 +906,20 @@ def read_igra(data_dir, year_min=2000, year_max=2025):
             wspd_arr = np.array(wspds, dtype=np.float64)
             u, v = _wind_components(wspd_arr, wdir_arr)
 
+            # Observation time: launch_time + elapsed seconds
+            obs_time = None
+            if launch_time is not None:
+                elapsed_s = np.array(etimes, dtype=np.float64)
+                obs_time = launch_time + (elapsed_s * 1e9).astype("timedelta64[ns]")
+
             profiles.append({
-                "sonde_id": f"{station_id}_{year:04d}{month:02d}{day:02d}{hour:02d}",
+                "sonde_id": f"{station_id}_{year_val:04d}{month:02d}{day:02d}{hour:02d}",
                 "launch_time": launch_time,
                 "launch_lat": launch_lat,
                 "launch_lon": launch_lon,
                 "station_id": station_id,
                 "altitude": altitude,
+                "obs_time": obs_time,
                 "p": p,
                 "T": T,
                 "RH": rh,
