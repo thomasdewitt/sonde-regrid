@@ -358,6 +358,12 @@ def read_activate(data_dir):
         if ts_match and ts_match.group(1) in ACTIVATE_UNCONDITIONED_RH:
             rh = None
 
+        # Fall back to first finite GPS position if header lat/lon missing
+        if not np.isfinite(launch_lat) and "Latitude" in col_idx:
+            launch_lat = _first_finite(_replace_missing(data[:, col_idx["Latitude"]], MISSING_ICT))
+        if not np.isfinite(launch_lon) and "Longitude" in col_idx:
+            launch_lon = _first_finite(_replace_missing(data[:, col_idx["Longitude"]], MISSING_ICT))
+
         # Observation time: Time_Start is UTC seconds from midnight.
         # Combine with launch date to get absolute datetime.
         obs_time = None
@@ -474,6 +480,12 @@ def _parse_eol(fpath):
     rh = _replace_missing(data[:, 7], MISSING)            # %
     u = _replace_missing(data[:, 8], MISSING)             # m/s
     v = _replace_missing(data[:, 9], MISSING)             # m/s
+
+    # Fall back to first finite GPS position if header lat/lon missing
+    if not np.isfinite(launch_lat) and ncols > 15:
+        launch_lat = _first_finite(_replace_missing(data[:, 15], MISSING))
+    if not np.isfinite(launch_lon) and ncols > 14:
+        launch_lon = _first_finite(_replace_missing(data[:, 14], MISSING))
 
     # Observation time: hh (col 1), mm (col 2), ss (col 3) → absolute datetime.
     # These are clock times (UTC), not elapsed. Combine with launch date.
@@ -623,6 +635,13 @@ def _parse_frd(fpath):
     rh = _replace_missing(data[:, 4], MISSING)              # %
     u = _replace_missing(data[:, 8], MISSING)               # m/s
     v = _replace_missing(data[:, 9], MISSING)               # m/s
+
+    # Fall back to first finite GPS position if header lat/lon missing
+    ncols = data.shape[1]
+    if not np.isfinite(launch_lat) and ncols > 17:
+        launch_lat = _first_finite(_replace_missing(data[:, 17], MISSING))
+    if not np.isfinite(launch_lon) and ncols > 18:
+        launch_lon = _first_finite(_replace_missing(data[:, 18], MISSING))
 
     # Observation time: column 1 is elapsed seconds from launch
     obs_time = None

@@ -238,8 +238,22 @@ def _regrid_profile(prof, z_max):
     return result
 
 
-def _add_variable_attrs(out):
-    """Attach CF-style attributes to data variables."""
+ALTITUDE_ATTRS = {
+    "units": "m", "long_name": "altitude above mean sea level",
+    "axis": "Z", "positive": "up",
+}
+LAUNCH_LAT_ATTRS = {"units": "degrees_north", "standard_name": "latitude"}
+LAUNCH_LON_ATTRS = {"units": "degrees_east", "standard_name": "longitude"}
+
+
+def _set_coord_attrs(out, lat_long_name="latitude at profile start",
+                     lon_long_name="longitude at profile start"):
+    """Attach standard attributes to coordinates and data variables."""
+    out["altitude"].attrs = ALTITUDE_ATTRS
+    out["launch_lat"].attrs = {**LAUNCH_LAT_ATTRS, "long_name": lat_long_name}
+    out["launch_lon"].attrs = {**LAUNCH_LON_ATTRS, "long_name": lon_long_name}
+    out["launch_time"].attrs = {"long_name": "date and time of sounding launch"}
+    out["observation_time"].attrs = {"long_name": "observation time at each altitude level"}
     for var, attrs in VARIABLE_ATTRS.items():
         if var in out:
             out[var].attrs = attrs
@@ -342,22 +356,8 @@ def process_dataset(name, reader, data_path, z_max=None, profiles=None,
     )
     out["observation_time"] = (dims, obs_time_arr)
 
-    out["altitude"].attrs = {
-        "units": "m", "long_name": "altitude above mean sea level",
-        "axis": "Z", "positive": "up",
-    }
-    out["launch_lat"].attrs = {
-        "units": "degrees_north", "long_name": "latitude at profile start",
-        "standard_name": "latitude",
-    }
-    out["launch_lon"].attrs = {
-        "units": "degrees_east", "long_name": "longitude at profile start",
-        "standard_name": "longitude",
-    }
-    out["launch_time"].attrs = {"long_name": "date and time of profile start"}
-    out["observation_time"].attrs = {"long_name": "observation time at each altitude level"}
+    _set_coord_attrs(out)
     out["sonde_id"].attrs = {"long_name": "provider sonde or profile identifier"}
-    _add_variable_attrs(out)
     out.attrs = _global_attrs(name, z_max, n_loc, n_loc, n_alt, provenance)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -451,22 +451,9 @@ def process_igra():
         )
         out["observation_time"] = (dims, obs_time_arr)
 
-        out["altitude"].attrs = {
-            "units": "m", "long_name": "altitude above mean sea level",
-            "axis": "Z", "positive": "up",
-        }
-        out["launch_lat"].attrs = {
-            "units": "degrees_north", "long_name": "latitude of station",
-            "standard_name": "latitude",
-        }
-        out["launch_lon"].attrs = {
-            "units": "degrees_east", "long_name": "longitude of station",
-            "standard_name": "longitude",
-        }
-        out["launch_time"].attrs = {"long_name": "date and time of sounding launch"}
-        out["observation_time"].attrs = {"long_name": "observation time at each altitude level"}
+        _set_coord_attrs(out, lat_long_name="latitude of station",
+                         lon_long_name="longitude of station")
         out["station_id"].attrs = {"long_name": "IGRA station identifier"}
-        _add_variable_attrs(out)
         out.attrs = _global_attrs(name, Z_MAX_IGRA, n_stations, len(profs), n_alt,
                                   DATASETS["igra"]["provenance"])
 

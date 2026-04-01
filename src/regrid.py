@@ -64,13 +64,17 @@ def bin_average(altitude, values, edges):
     # Assign each observation to a bin (0-based)
     bin_idx = np.digitize(altitude, edges) - 1
 
-    for k in range(n_cells):
-        mask = bin_idx == k
-        if mask.any():
-            vals = values[mask]
-            good = np.isfinite(vals)
-            if good.any():
-                gridded[k] = np.mean(vals[good])
+    # Keep only observations that fall inside the grid and have finite values
+    valid = (bin_idx >= 0) & (bin_idx < n_cells) & np.isfinite(values)
+    if not valid.any():
+        return gridded
+
+    idx = bin_idx[valid]
+    vals = values[valid]
+    sums = np.bincount(idx, weights=vals, minlength=n_cells)
+    counts = np.bincount(idx, minlength=n_cells)
+    populated = counts > 0
+    gridded[populated] = sums[populated] / counts[populated]
 
     return gridded
 
