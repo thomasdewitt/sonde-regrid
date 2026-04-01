@@ -1,5 +1,5 @@
 """
-Data readers for 12 sonde datasets.
+Data readers for 13 sonde datasets.
 
 Each read_* function takes a data directory path and returns a list of
 profile dicts with standardized keys and units:
@@ -677,6 +677,50 @@ def read_arrecon(data_dir):
         profile = _parse_frd(fpath)
         if profile is not None:
             profiles.append(profile)
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  HALO-(AC)³  (Level 2 NetCDFs, PANGAEA)
+# ---------------------------------------------------------------------------
+
+def read_haloac3(data_dir):
+    """Read HALO-(AC)³ Level 2 dropsonde profiles (NetCDF).
+
+    Units: p [Pa], ta [K], rh [0--1 fractional], gpsalt [m], u/v [m/s].
+    """
+    pattern = os.path.join(data_dir, "Level_2", "*.nc")
+    files = sorted(glob.glob(pattern))
+    profiles = []
+
+    for fpath in files:
+        ds = xr.open_dataset(fpath)
+
+        altitude = ds["gpsalt"].values.astype(np.float64)
+        p = ds["p"].values.astype(np.float64)            # Pa
+        T = ds["ta"].values.astype(np.float64)            # K
+        rh_frac = ds["rh"].values.astype(np.float64)      # 0--1
+        u = ds["u"].values.astype(np.float64)
+        v = ds["v"].values.astype(np.float64)
+
+        launch_lat = float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan))
+        launch_lon = float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan))
+
+        profiles.append({
+            "sonde_id": str(ds["sonde_id"].values),
+            "launch_time": ds["time"].values[-1],  # time array is surface-first; launch is last
+            "launch_lat": launch_lat,
+            "launch_lon": launch_lon,
+            "altitude": altitude,
+            "obs_time": ds["time"].values,
+            "p": p,
+            "T": T,
+            "RH": rh_frac * 100.0,  # convert to %
+            "u": u,
+            "v": v,
+        })
+        ds.close()
 
     return profiles
 

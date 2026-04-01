@@ -29,6 +29,7 @@ from readers import (
     read_dynamo,
     read_shout,
     read_arrecon,
+    read_haloac3,
     read_enrr,
     read_hs3,
     read_predict,
@@ -202,6 +203,22 @@ DATASETS = {
             "citation": "Cobb et al. (2022), doi:10.1175/WAF-D-21-0104.1",
             "qc_applied": "ASPEN QC. Archive used as provided.",
             "source_product": "AR Recon FRD dropsonde files",
+        },
+    },
+    "haloac3": {
+        "reader": read_haloac3,
+        "path": os.path.join(DATA_DIR, "halo-ac3"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "HALO-(AC)³",
+            "instrument": "Vaisala RD41 dropsonde",
+            "platform": "HALO, Polar 5",
+            "region": "Norwegian and Greenland Seas, Fram Strait, central Arctic",
+            "period": "March-April 2022",
+            "citation": "Ehrlich et al. (2025), doi:10.5194/essd-17-1295-2025",
+            "qc_applied": "Quality control and processing applied to Level-1 data. "
+                          "George et al. (2024), doi:10.1594/PANGAEA.968891",
+            "source_product": "HALO-(AC)³ Level 2 individual sounding profiles (NetCDF)",
         },
     },
     "enrr": {
