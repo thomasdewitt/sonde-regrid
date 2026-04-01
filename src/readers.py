@@ -1,5 +1,5 @@
 """
-Data readers for 9 sonde datasets.
+Data readers for 12 sonde datasets.
 
 Each read_* function takes a data directory path and returns a list of
 profile dicts with standardized keys and units:
@@ -676,6 +676,88 @@ def read_arrecon(data_dir):
     for fpath in files:
         profile = _parse_frd(fpath)
         if profile is not None:
+            profiles.append(profile)
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  ENRR  (G-IV FRD + C-130 FRD + Global Hawk EOL)
+# ---------------------------------------------------------------------------
+
+def read_enrr(data_dir):
+    """Read ENRR dropsonde profiles from all three platforms.
+
+    G-IV corrected profiles (FRD): corrected/*/*.frd
+    C-130 dry-bias-corrected profiles (FRD): c130_drybiascor/*.frd
+    Global Hawk corrected profiles (EOL): globalhawk_corrected/*/*.eol
+    """
+    profiles = []
+
+    # G-IV: FRD files in corrected/YYYYMMDD_RFNN/ subdirectories
+    giv_pattern = os.path.join(data_dir, "corrected", "**", "*.frd")
+    for fpath in sorted(glob.glob(giv_pattern, recursive=True)):
+        profile = _parse_frd(fpath)
+        if profile is not None:
+            profiles.append(profile)
+
+    # C-130: FRD files in c130_drybiascor/ (flat or in subdirectories)
+    c130_pattern = os.path.join(data_dir, "c130_drybiascor", "**", "*.frd")
+    for fpath in sorted(glob.glob(c130_pattern, recursive=True)):
+        profile = _parse_frd(fpath)
+        if profile is not None:
+            profiles.append(profile)
+
+    # Global Hawk: EOL files in globalhawk_corrected/YYYYMMDD_RFNN/
+    gh_pattern = os.path.join(data_dir, "globalhawk_corrected", "**", "*.eol")
+    for fpath in sorted(glob.glob(gh_pattern, recursive=True)):
+        profile = _parse_eol(fpath)
+        if profile is not None:
+            profile.pop("operator_comment", None)
+            profiles.append(profile)
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  HS3  (EOL format, Global Hawk, by year)
+# ---------------------------------------------------------------------------
+
+def read_hs3(data_dir):
+    """Read HS3 dropsonde profiles (EOL format).
+
+    Files are in subdirectories by year and basin: YYYY/{Gulf,Pacific}/*.eol
+    """
+    pattern = os.path.join(data_dir, "**", "*.eol")
+    files = sorted(glob.glob(pattern, recursive=True))
+    profiles = []
+
+    for fpath in files:
+        profile = _parse_eol(fpath)
+        if profile is not None:
+            profile.pop("operator_comment", None)
+            profiles.append(profile)
+
+    return profiles
+
+
+# ---------------------------------------------------------------------------
+#  PREDICT  (EOL format, NSF/NCAR GV)
+# ---------------------------------------------------------------------------
+
+def read_predict(data_dir):
+    """Read PREDICT dropsonde profiles (EOL format).
+
+    Files are in the top-level data directory: *.eol
+    """
+    pattern = os.path.join(data_dir, "*.eol")
+    files = sorted(glob.glob(pattern))
+    profiles = []
+
+    for fpath in files:
+        profile = _parse_eol(fpath)
+        if profile is not None:
+            profile.pop("operator_comment", None)
             profiles.append(profile)
 
     return profiles

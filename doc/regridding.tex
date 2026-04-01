@@ -28,6 +28,34 @@ Radiosonde and dropsonde profiles report atmospheric variables at irregular vert
 
 The simplicity of this approach is deliberate. If interpolation was used, artificial smoothness would be introduced where data are interpolated given that commonly-used interpolation schemes assume a smooth function with $H=1$ \citep[cf.][]{lovejoy2007}.
 
+Table~\ref{tab:datasets} summarizes the datasets included in this archive.
+
+\begin{table}[h]
+\centering
+\caption{Source datasets.  Profile counts reflect the number used after quality filtering. Datasets marked with * were not available for download at the time of processing.}
+\label{tab:datasets}
+\small
+\begin{tabular}{lrlll}
+\toprule
+Dataset & Profiles & Period & Region & Citation \\
+\midrule
+IGRA              & (subsampled) & 2025                      & Global                     & \citet{durre2006} \\
+JOANNE            & 1068         & Jan--Feb 2020              & Tropical N Atlantic        & \citet{george2021} \\
+BEACH             & 976          & Aug--Sep 2024              & Tropical Atlantic          & \citet{gloeckner2025} \\
+OTREC             & 648          & Aug--Oct 2019              & E Pacific, Caribbean       & \citet{vomel2021} \\
+ACTIVATE          & 801          & Feb 2020 -- Jun 2022       & W North Atlantic           & \citet{vomel2023activate} \\
+Hurricane         & 13{,}678     & 1996--2012                 & Atlantic, E Pacific TCs    & \citet{wang2015} \\
+DYNAMO            & 468          & Nov--Dec 2011              & Central Indian Ocean       & \citet{ciesielski2014} \\
+SHOUT             & 638          & 2015--2016                 & Atlantic TCs, Pacific      & \citet{wick2020} \\
+AR Recon          & ${\sim}$8000 & 2018--2026 winters         & E North Pacific            & \citet{cobb2022} \\
+ENRR              & 976          & Jan--Mar 2016              & Tropical Pacific           & \citet{dole2018} \\
+HS3               & 79           & Sep 2011                   & Atlantic TCs               & \citet{braun2016} \\
+PREDICT           & 558          & Aug--Sep 2010              & Caribbean, W Atlantic      & \citet{montgomery2012} \\
+HALO--(AC)\textsuperscript{3}*  & 511 & Mar--Apr 2022         & Arctic, Fram Strait        & \citet{ehrlich2025} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{IGRA}
 
 The Integrated Global Radiosonde Archive \citep{durre2006} is a quality-assured compilation of radiosonde observations from more than 1500 globally distributed stations, with records extending from the 1960s to the present.  Observations typically include pressure, temperature, dewpoint depression, geopotential height, wind direction, and wind speed.  IGRA integrates data from disparate sources and applies automated quality assurance that removes measurements failing checks for physical implausiblity, internal inconsistency, climatological outliers, and temporal inconsistency.
@@ -81,6 +109,30 @@ We use the archive as provided.
 Atmospheric River Reconnaissance (AR Recon) is a recurring campaign that has deployed dropsondes from NOAA G-IVSP and Air Force Reserve WC-130J aircraft during winter seasons (November--March) since 2016, targeting atmospheric rivers approaching the U.S.\ West Coast with the primary aim of improving forecasts of landfalling events.  \citet{cobb2022} describe the 2021 season, during which 1142 dropsondes were released during 45 flights.  The data used here span the 2018--2026 winter seasons.  Drop locations are guided by adjoint and ensemble sensitivity analyses to target regions where additional observations would most reduce forecast uncertainty.  All profiles were processed through ASPEN quality control.
 
 Here, the archive is used as provided.
+
+\subsection{ENRR}
+
+The NOAA El Ni\~no Rapid Response (ENRR) field campaign \citep{dole2018} deployed dropsondes from three aircraft platforms over the tropical Pacific during the strong 2015/16 El Ni\~no event, from January through March 2016.  The NOAA Gulfstream-IV (G-IV) flew 22 missions releasing 607 dropsondes targeting deep convective regions and tropical--extratropical linkages.  A NOAA C-130 flew 6 missions releasing 280 dropsondes, and the NASA Global Hawk flew 3 missions releasing 89 dropsondes from cruise altitude (${\sim}\SI{18}{km}$).  All profiles were processed through ASPEN; the G-IV and Global Hawk archives apply corrected data, and the C-130 archive applies a temperature-dependent dry bias correction.
+
+Here, the corrected archives from all three platforms are used as provided (976 profiles total).
+
+\subsection{HS3}
+
+NASA's Hurricane and Severe Storm Sentinel (HS3) investigation \citep{braun2016} deployed dropsondes from the NASA Global Hawk unmanned aircraft (cruise altitude ${\sim}\SI{18}{km}$) during the Atlantic hurricane seasons of 2011--2014.  The ``environmental'' Global Hawk (AV-6) carried instruments to characterize the storm environment, including dropsondes for temperature, humidity, and wind profiles.  HS3 flew 21 missions over 9 named storms, along with flights over Saharan Air Layer outbreaks and non-developing systems.  All profiles were processed through ASPEN.  The dropsonde archive contains 1505 quality-controlled soundings across the four years: 79 in 2011, 337 in 2012, 433 in 2013, and 656 in 2014.
+
+Here, the 79 quality-controlled profiles from 2011 are used.  The remaining years (2012--2014) are distributed through the EOL order system and were not available for download at the time of processing.
+
+\subsection{PREDICT}
+
+The Pre-Depression Investigation of Cloud-systems in the Tropics (PREDICT) experiment \citep{montgomery2012} deployed 568 dropsondes from the NSF/NCAR Gulfstream-V during 26 flights over the Caribbean and western Atlantic in August--September 2010.  The campaign investigated tropical cyclogenesis, with priority given to developing systems prior to their classification as tropical depressions.  Of the 568 deployed, 558 passed quality control and are included in the final archive.  All profiles were processed through ASPEN.  The Version~3 release incorporates a temperature-dependent relative humidity and dewpoint dry bias correction.
+
+Here, the 558 quality-controlled profiles are used as provided.
+
+\subsection{HALO--(AC)\textsuperscript{3} dropsondes}
+
+The HALO--(AC)\textsuperscript{3} aircraft campaign \citep{ehrlich2025} collected in situ and remote sensing measurements over the Norwegian and Greenland Seas, the Fram Strait, and the central Arctic Ocean in March--April 2022.  The HALO and Polar~5 aircraft deployed 511 dropsondes during 30 flight segments, with profiles spanning altitudes from the surface to ${\sim}\SI{13}{km}$.  \citet{george2024} processed the dropsonde data through quality control and provide Level-2 individual sounding profiles as NetCDF files.
+
+These data were not available for download at the time of processing.  The PANGAEA archive requires an account for bulk file retrieval.
 
 \section{Regridding algorithm}
 

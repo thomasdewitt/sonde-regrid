@@ -29,6 +29,9 @@ from readers import (
     read_dynamo,
     read_shout,
     read_arrecon,
+    read_enrr,
+    read_hs3,
+    read_predict,
     read_igra,
 )
 
@@ -199,6 +202,53 @@ DATASETS = {
             "citation": "Cobb et al. (2022), doi:10.1175/WAF-D-21-0104.1",
             "qc_applied": "ASPEN QC. Archive used as provided.",
             "source_product": "AR Recon FRD dropsonde files",
+        },
+    },
+    "enrr": {
+        "reader": read_enrr,
+        "path": os.path.join(DATA_DIR, "enrr"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "NOAA El Niño Rapid Response (ENRR)",
+            "instrument": "GPS dropsonde",
+            "platform": "NOAA G-IV, NOAA C-130, NASA Global Hawk",
+            "region": "Tropical Pacific, Hawaii to U.S. West Coast",
+            "period": "January-March 2016",
+            "citation": "Dole et al. (2018), doi:10.1175/BAMS-D-16-0219.1",
+            "qc_applied": "ASPEN QC. G-IV and Global Hawk archives use corrected data. "
+                          "C-130 archive applies temperature-dependent dry bias correction.",
+            "source_product": "ENRR corrected dropsonde archives (FRD and EOL format)",
+        },
+    },
+    "hs3": {
+        "reader": read_hs3,
+        "path": os.path.join(DATA_DIR, "hs3"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "NASA Hurricane and Severe Storm Sentinel (HS3)",
+            "instrument": "GPS dropsonde",
+            "platform": "NASA Global Hawk (cruise altitude ~18 km)",
+            "region": "Atlantic tropical cyclones",
+            "period": "2011 hurricane season",
+            "citation": "Braun et al. (2016), doi:10.1175/BAMS-D-15-00186.1",
+            "qc_applied": "ASPEN QC. Version 3 release.",
+            "source_product": "HS3 dropsonde archive (EOL format)",
+        },
+    },
+    "predict": {
+        "reader": read_predict,
+        "path": os.path.join(DATA_DIR, "predict"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "PREDICT",
+            "instrument": "EOL/Vaisala GPS dropsonde",
+            "platform": "NSF/NCAR Gulfstream-V",
+            "region": "Caribbean and western Atlantic",
+            "period": "August-September 2010",
+            "citation": "Montgomery et al. (2012), doi:10.1175/BAMS-D-11-00046.1",
+            "qc_applied": "ASPEN QC. Version 3 release with temperature-dependent "
+                          "RH and dewpoint dry bias correction.",
+            "source_product": "PREDICT dropsonde archive (EOL format)",
         },
     },
     "igra": {
