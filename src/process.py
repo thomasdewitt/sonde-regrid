@@ -229,7 +229,7 @@ DATASETS = {
             "instrument": "GPS dropsonde",
             "platform": "NASA Global Hawk (cruise altitude ~18 km)",
             "region": "Atlantic tropical cyclones",
-            "period": "2011 hurricane season",
+            "period": "2011-2014 hurricane seasons",
             "citation": "Braun et al. (2016), doi:10.1175/BAMS-D-15-00186.1",
             "qc_applied": "ASPEN QC. Version 3 release.",
             "source_product": "HS3 dropsonde archive (EOL format)",
