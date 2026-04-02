@@ -691,6 +691,11 @@ def read_arrecon(data_dir):
 #  HALO-(AC)³  (Level 2 NetCDFs, PANGAEA)
 # ---------------------------------------------------------------------------
 
+HALOAC3_EXCLUDE = {
+    "163313035",  # GPS receiver failure, no altitude data
+}
+
+
 def read_haloac3(data_dir):
     """Read HALO-(AC)³ Level 2 dropsonde profiles (NetCDF).
 
@@ -703,6 +708,11 @@ def read_haloac3(data_dir):
     for fpath in files:
         ds = xr.open_dataset(fpath)
 
+        sonde_id = str(ds["sonde_id"].values)
+        if sonde_id in HALOAC3_EXCLUDE:
+            ds.close()
+            continue
+
         altitude = ds["gpsalt"].values.astype(np.float64)
         p = ds["p"].values.astype(np.float64)            # Pa
         T = ds["ta"].values.astype(np.float64)            # K
@@ -712,6 +722,12 @@ def read_haloac3(data_dir):
 
         launch_lat = float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan))
         launch_lon = float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan))
+
+        # Replace sentinel values (999, 99) with NaN
+        if launch_lat > 90 or launch_lat < -90:
+            launch_lat = np.nan
+        if launch_lon > 360 or launch_lon < -360:
+            launch_lon = np.nan
 
         profiles.append({
             "sonde_id": str(ds["sonde_id"].values),
@@ -872,12 +888,27 @@ def read_dynamo(data_dir):
         launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
         launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
 
-        # Observation time: time_offset is hours from launch
+        # Observation time from Hour/Min/Sec UTC clock variables.
+        # (time_offset metadata says "hour" but values are actually seconds;
+        # using H/M/S directly is unambiguous.)
         obs_time = None
-        if launch_time is not None and "time_offset" in ds:
-            offset_hrs = ds["time_offset"].values.astype(np.float64)
-            offset_hrs[offset_hrs <= -999] = np.nan
-            obs_time = launch_time + (offset_hrs * 3.6e12).astype("timedelta64[ns]")
+        if launch_time is not None and "Hour" in ds and "Min" in ds and "Sec" in ds:
+            h = ds["Hour"].values.astype(np.float64)
+            mn = ds["Min"].values.astype(np.float64)
+            sc = ds["Sec"].values.astype(np.float64)
+            for arr in [h, mn, sc]:
+                arr[arr <= -999] = np.nan
+            # H=0, M=0, S=0 entries are end-of-data sentinels
+            sentinel = (h == 0) & (mn == 0) & (sc == 0)
+            h[sentinel] = np.nan
+            total_sec = h * 3600 + mn * 60 + sc
+            launch_date = np.datetime64(
+                str(launch_time)[:10], "ns"
+            )
+            obs_time = launch_date + (total_sec * 1e9).astype("timedelta64[ns]")
+            # Mask invalid entries
+            invalid = ~(np.isfinite(h) & np.isfinite(mn) & np.isfinite(sc))
+            obs_time[invalid] = np.datetime64("NaT")
 
         profiles.append({
             "sonde_id": fname.replace(".nc", ""),
