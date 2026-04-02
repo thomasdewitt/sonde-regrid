@@ -39,7 +39,7 @@ Table~\ref{tab:datasets} summarizes the datasets included in this archive.
 \toprule
 Dataset & Profiles & Period & Region & Citation \\
 \midrule
-IGRA              & (all)        & 2000--2025                & Global                     & \citet{durre2006} \\
+IGRA              & (subsampled) & 2000--2025                & Global                     & \citet{durre2006} \\
 JOANNE            & 1068         & Jan--Feb 2020              & Tropical N Atlantic        & \citet{george2021} \\
 BEACH             & 976          & Aug--Sep 2024              & Tropical Atlantic          & \citet{gloeckner2025} \\
 OTREC             & 648          & Aug--Oct 2019              & E Pacific, Caribbean       & \citet{vomel2021} \\
@@ -60,7 +60,7 @@ HALO--(AC)\textsuperscript{3}  & 463 & Mar--Apr 2022          & Arctic, Fram Str
 
 The Integrated Global Radiosonde Archive \citep{durre2006} is a quality-assured compilation of radiosonde observations from more than 1500 globally distributed stations, with records extending from the 1960s to the present.  Observations typically include pressure, temperature, dewpoint depression, geopotential height, wind direction, and wind speed.  IGRA integrates data from disparate sources and applies automated quality assurance that removes measurements failing checks for physical implausiblity, internal inconsistency, climatological outliers, and temporal inconsistency.
 
-We consider all available soundings from 2000--2025.  Each station is written to a separate file spanning whatever date range it has data for.  Station metadata (name, location, elevation, equipment history) is extracted from the IGRA metadata catalog and stored as global attributes.
+We consider soundings from 2000--2025, subsampled to every 10th day (DOY 1, 11, 21, etc.) to reduce data volume.  The vertical grid spacing is \SI{100}{m} (compared to \SI{10}{m} for dropsonde datasets).  Each station is written to a separate file spanning whatever date range it has data for.  Station metadata (name, location, elevation, equipment history) is extracted from the IGRA metadata catalog and stored as global attributes.
 
 \subsection{JOANNE}
 
@@ -144,7 +144,7 @@ where $N = \lfloor z_{\max}/\Delta z\rfloor$ is the number of cells.  The $k$-th
 \begin{align}
     \bar{z}_k = (k + \tfrac{1}{2})\,\Delta z. \label{eq:centers}
 \end{align}
-The grid spacing is set to $\Delta z = \SI{10}{m}$, chosen to be finer than the effective vertical resolution of most modern radiosondes and dropsondes (of order $\SI{200}{m}$) so that no information is lost during regridding.  The grid extends to $z_{\max} = \SI{20}{km}$ for all dropsonde datasets and $z_{\max} = \SI{40}{km}$ for IGRA radiosondes, which routinely ascend into the stratosphere.
+The grid spacing is set to $\Delta z = \SI{10}{m}$ for dropsonde datasets, chosen to be finer than the effective vertical resolution of most modern dropsondes (of order $\SI{200}{m}$) so that no information is lost during regridding.  IGRA radiosondes use a coarser spacing of $\Delta z = \SI{100}{m}$ to reduce file sizes given the large number of stations and soundings.  The grid extends to $z_{\max} = \SI{20}{km}$ for all dropsonde datasets and $z_{\max} = \SI{40}{km}$ for IGRA radiosondes, which routinely ascend into the stratosphere.
 
 For each grid cell, the regridded value of a variable is equal to the arithmetic mean of all measurements whose altitude falls within that cell.  If a cell contains no measurements, the value is recorded as missing, and this procedure is applied independently to each variable.
 

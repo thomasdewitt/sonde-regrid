@@ -42,10 +42,11 @@ Z_MIN = 0.0
 Z_MAX_DEFAULT = 20000.0   # 20 km for dropsonde datasets
 Z_MAX_IGRA = 40000.0      # 40 km for IGRA radiosondes
 DZ = DEFAULT_DZ
+DZ_IGRA = 100.0           # 100 m grid spacing for IGRA
 
 IGRA_YEAR_MIN = 2000
 IGRA_YEAR_MAX = 2025
-IGRA_SUBSAMPLE = 1        # keep every Nth day (1 = all)
+IGRA_SUBSAMPLE = 10       # keep every Nth day (1 = all, 10 = DOY 1, 11, 21, ...)
 
 DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE"]
 
@@ -275,7 +276,7 @@ DATASETS = {
             "instrument": "Various radiosondes",
             "platform": "Ground stations (1500+ globally)",
             "region": "Global",
-            "period": "2000-2025",
+            "period": "2000-2025 (subsampled every 10th day)",
             "citation": "Durre et al. (2006), doi:10.1175/JCLI3594.1",
             "qc_applied": "IGRA automated QA (physical plausibility, internal consistency, "
                           "climatological outliers, temporal consistency). "
@@ -286,8 +287,10 @@ DATASETS = {
 }
 
 
-def _regrid_profile(prof, z_max):
+def _regrid_profile(prof, z_max, dz=None):
     """Regrid a single profile dict, returning a dict of 1-D arrays."""
+    if dz is None:
+        dz = DZ
     variables = {}
     for var in ("u", "v", "p", "T", "RH"):
         if var in prof and prof[var] is not None:
@@ -295,7 +298,7 @@ def _regrid_profile(prof, z_max):
     if "q" in prof and prof["q"] is not None:
         variables["q"] = prof["q"]
     obs_time = prof.get("obs_time")
-    ds = regrid_sonde(prof["altitude"], variables, z_min=Z_MIN, z_max=z_max, dz=DZ,
+    ds = regrid_sonde(prof["altitude"], variables, z_min=Z_MIN, z_max=z_max, dz=dz,
                       obs_time=obs_time)
     result = {var: ds[var].values for var in DATA_VARIABLES if var in ds}
     if "observation_time" in ds:
@@ -340,8 +343,10 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
             out[var].attrs = attrs
 
 
-def _global_attrs(name, z_max, n_soundings, n_alt, provenance=None):
+def _global_attrs(name, z_max, n_soundings, n_alt, dz=None, provenance=None):
     """Standard global attributes with per-dataset provenance."""
+    if dz is None:
+        dz = DZ
     attrs = {
         "title": f"Regridded sonde profiles — {name}",
         "source": f"Bin-averaged from {name} dataset",
@@ -349,7 +354,7 @@ def _global_attrs(name, z_max, n_soundings, n_alt, provenance=None):
                    f"{time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}",
         "Conventions": "CF-1.8",
         "regridding_method": "bin averaging (no interpolation)",
-        "grid_spacing_m": DZ,
+        "grid_spacing_m": dz,
         "grid_min_m": Z_MIN,
         "grid_max_m": z_max,
         "n_soundings": n_soundings,
@@ -366,7 +371,7 @@ def _global_attrs(name, z_max, n_soundings, n_alt, provenance=None):
     return attrs
 
 
-def process_dataset(name, reader, data_path, z_max=None, profiles=None,
+def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
                     provenance=None):
     """Read, regrid, and save one dataset.
 
@@ -374,6 +379,8 @@ def process_dataset(name, reader, data_path, z_max=None, profiles=None,
     """
     if z_max is None:
         z_max = Z_MAX_DEFAULT
+    if dz is None:
+        dz = DZ
 
     outpath = os.path.join(OUTPUT_DIR, f"{name}.nc")
     if os.path.exists(outpath):
@@ -409,7 +416,7 @@ def process_dataset(name, reader, data_path, z_max=None, profiles=None,
         print("  No profiles with valid data — skipping.")
         return
 
-    edges = make_grid(Z_MIN, z_max, DZ)
+    edges = make_grid(Z_MIN, z_max, dz)
     altitude = 0.5 * (edges[:-1] + edges[1:])
     n_alt = len(altitude)
     n_prof = len(profiles)
@@ -426,7 +433,7 @@ def process_dataset(name, reader, data_path, z_max=None, profiles=None,
 
     t0 = time.time()
     for i, prof in enumerate(profiles):
-        gridded = _regrid_profile(prof, z_max)
+        gridded = _regrid_profile(prof, z_max, dz=dz)
         for var in DATA_VARIABLES:
             if var in gridded:
                 data_arrays[var][i, :] = gridded[var]
@@ -461,7 +468,7 @@ def process_dataset(name, reader, data_path, z_max=None, profiles=None,
 
     _set_coord_attrs(out)
     out["sonde_id"].attrs = {"long_name": "provider sonde or profile identifier"}
-    out.attrs = _global_attrs(name, z_max, n_prof, n_alt, provenance)
+    out.attrs = _global_attrs(name, z_max, n_prof, n_alt, dz=dz, provenance=provenance)
 
     os.makedirs(os.path.dirname(outpath), exist_ok=True)
     out.to_netcdf(outpath)
@@ -575,7 +582,7 @@ def process_igra(stations=None):
             continue
         process_dataset(
             f"igra/{sid}", reader=None, data_path=None,
-            z_max=Z_MAX_IGRA,
+            z_max=Z_MAX_IGRA, dz=DZ_IGRA,
             profiles=profs,
             provenance=_igra_provenance(metadata, sid),
         )
