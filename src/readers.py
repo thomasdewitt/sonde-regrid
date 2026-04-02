@@ -1055,11 +1055,12 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
             launch_time = None
             try:
                 reltime_int = int(reltime_raw)
-                if reltime_int != 9999 and 0 <= reltime_int <= 2359:
+                if reltime_int != 9999:
                     rel_h = reltime_int // 100
                     rel_m = reltime_int % 100
-                    launch_time = np.datetime64(
-                        datetime(year_val, month, day, rel_h, rel_m))
+                    if 0 <= rel_h <= 23 and 0 <= rel_m <= 59:
+                        launch_time = np.datetime64(
+                            datetime(year_val, month, day, rel_h, rel_m))
             except (ValueError, IndexError):
                 pass
 

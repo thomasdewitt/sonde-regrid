@@ -468,9 +468,9 @@ def _read_igra_metadata(metadata_path):
             wmo_id = line[12:17].strip()
             station_name = line[18:48].strip()
             try:
-                lat = float(line[49:57])
-                lon = float(line[57:67])
-                elev = float(line[67:75])
+                lat = float(line[49:60])
+                lon = float(line[60:72])
+                elev = float(line[72:82])
             except ValueError:
                 lat = lon = elev = None
 
@@ -494,8 +494,25 @@ def _read_igra_metadata(metadata_path):
     return stations
 
 
+def _igra_provenance(metadata, station_id):
+    """Build provenance dict for one IGRA station."""
+    provenance = {**DATASETS["igra"]["provenance"]}
+    station_meta = metadata.get(station_id, {})
+    if station_meta:
+        provenance["station_name"] = station_meta["station_name"]
+        provenance["wmo_id"] = station_meta["wmo_id"]
+        provenance["station_elevation_m"] = (
+            str(station_meta["elevation"]) if station_meta["elevation"] is not None
+            else "unknown")
+        provenance["equipment_history"] = station_meta["equipment_history"]
+    return provenance
+
+
 def process_igra(stations=None):
     """Process IGRA: one file per station, all years combined.
+
+    Reads and writes one station at a time to avoid loading the entire
+    archive into memory.
 
     Parameters
     ----------
@@ -511,39 +528,36 @@ def process_igra(stations=None):
     print(f"Processing IGRA ({IGRA_YEAR_MIN}-{IGRA_YEAR_MAX})")
     print(f"{'='*60}")
 
-    t0 = time.time()
-    profs = read_igra(data_path, year_min=IGRA_YEAR_MIN, year_max=IGRA_YEAR_MAX,
-                      subsample=IGRA_SUBSAMPLE, stations=stations)
-    t_read = time.time() - t0
-    print(f"  Read {len(profs)} profiles in {t_read:.1f}s")
+    # Discover station zip files
+    pattern = os.path.join(data_path, "*-data.txt.zip")
+    import glob as _glob
+    zips = sorted(_glob.glob(pattern))
+    station_ids = [os.path.basename(z).split("-data")[0] for z in zips]
 
-    if not profs:
-        print("  No profiles — skipping.")
-        return
+    if stations is not None:
+        station_ids = [s for s in station_ids if s in set(stations)]
 
-    by_station = defaultdict(list)
-    for prof in profs:
-        by_station[prof["station_id"]].append(prof)
+    # Skip stations whose output already exists
+    todo = []
+    for sid in station_ids:
+        outpath = os.path.join(OUTPUT_DIR, f"igra/{sid}.nc")
+        if os.path.exists(outpath):
+            print(f"  Skipping igra/{sid} — already exists")
+        else:
+            todo.append(sid)
 
-    n_stations = len(by_station)
-    print(f"  {n_stations} stations to process")
+    print(f"  {len(todo)} stations to process")
 
-    for station_id in sorted(by_station):
-        name = f"igra/{station_id}"
-        station_meta = metadata.get(station_id, {})
-        provenance = {**DATASETS["igra"]["provenance"]}
-        if station_meta:
-            provenance["station_name"] = station_meta["station_name"]
-            provenance["wmo_id"] = station_meta["wmo_id"]
-            provenance["station_elevation_m"] = (
-                str(station_meta["elevation"]) if station_meta["elevation"] is not None
-                else "unknown")
-            provenance["equipment_history"] = station_meta["equipment_history"]
+    for sid in todo:
+        profs = read_igra(data_path, year_min=IGRA_YEAR_MIN, year_max=IGRA_YEAR_MAX,
+                          subsample=IGRA_SUBSAMPLE, stations=[sid])
+        if not profs:
+            continue
         process_dataset(
-            name, reader=None, data_path=None,
+            f"igra/{sid}", reader=None, data_path=None,
             z_max=Z_MAX_IGRA,
-            profiles=by_station[station_id],
-            provenance=provenance,
+            profiles=profs,
+            provenance=_igra_provenance(metadata, sid),
         )
 
 
