@@ -136,6 +136,29 @@ class TestCoordinates:
         assert np.all((-90 <= finite_lats) & (finite_lats <= 90)), "latitude out of [-90, 90]"
         assert np.all((-360 <= finite_lons) & (finite_lons <= 360)), "longitude out of [-360, 360]"
 
+    def test_profile_duration_under_6h(self, dataset):
+        """All profiles should span less than 6 hours from launch to last observation."""
+        _, ds = dataset
+        max_duration = np.timedelta64(6, "h")
+        launch = ds["launch_time"].values        # (location, sounding)
+        obs = ds["observation_time"].values       # (location, sounding, altitude)
+        n_loc, n_snd = launch.shape
+        for i in range(n_loc):
+            for j in range(n_snd):
+                lt = launch[i, j]
+                if np.isnat(lt):
+                    continue
+                obs_ij = obs[i, j, :]
+                valid = obs_ij[~np.isnat(obs_ij)]
+                if len(valid) == 0:
+                    continue
+                all_times = np.concatenate([[lt], valid])
+                span = all_times.max() - all_times.min()
+                assert span < max_duration, (
+                    f"profile ({i}, {j}) spans {span} "
+                    f"(launch {lt}, obs {all_times.min()} to {all_times.max()})"
+                )
+
 
 class TestDataVariables:
     def test_all_data_variables_present(self, dataset):
