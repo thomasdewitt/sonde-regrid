@@ -15,6 +15,10 @@ output/
 
 # macOS
 .DS_Store
+._.DS_Store
+
+# Claude Code
+.claude/
 
 # Python
 __pycache__/
