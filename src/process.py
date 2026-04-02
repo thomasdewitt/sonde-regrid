@@ -317,11 +317,24 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
     out["altitude"].attrs = ALTITUDE_ATTRS
     out["launch_lat"].attrs = {**LAUNCH_LAT_ATTRS, "long_name": lat_long_name}
     out["launch_lon"].attrs = {**LAUNCH_LON_ATTRS, "long_name": lon_long_name}
-    out["launch_time"].attrs = {"long_name": "date and time of sounding launch"}
-    out["observation_time"].attrs = {"long_name": "observation time at each altitude level"}
+    out["launch_time"].attrs = {
+        "long_name": "date and time of sounding launch",
+        "comment": "For IGRA: parsed from RELTIME field (actual release time in HHMM). "
+                   "When RELTIME is missing (9999) or invalid, falls back to the nominal "
+                   "synoptic hour. If RELTIME places the launch >12h after the nominal "
+                   "time, the date is shifted back one day (pre-midnight launches for 00Z).",
+    }
+    out["observation_time"].attrs = {
+        "long_name": "observation time at each altitude level",
+        "comment": "Bin-averaged within each grid cell. Computed as launch_time + "
+                   "elapsed time from the sounding data.",
+    }
     if "nominal_time" in out:
         out["nominal_time"].attrs = {
-            "long_name": "nominal synoptic time (0, 6, 12, or 18 UTC)"}
+            "long_name": "nominal synoptic time (0, 6, 12, or 18 UTC)",
+            "comment": "The synoptic hour from the IGRA header (HR field). "
+                       "Differs from launch_time, which is the actual release time.",
+        }
     for var, attrs in VARIABLE_ATTRS.items():
         if var in out:
             out[var].attrs = attrs
@@ -344,6 +357,8 @@ def _global_attrs(name, z_max, n_soundings, n_alt, provenance=None):
         "variables_directly_gridded": "u, v, p, T, RH",
         "variables_diagnosed_post_gridding": "q, theta, theta_e, MSE, DSE",
         "missing_value_note": "NaN indicates grid cells with no valid observations",
+        "profile_filtering": "Profiles with no finite altitude values are excluded "
+                             "prior to regridding (cannot be placed on the grid).",
     }
     if provenance:
         for key, val in provenance.items():
@@ -505,6 +520,9 @@ def _igra_provenance(metadata, station_id):
             str(station_meta["elevation"]) if station_meta["elevation"] is not None
             else "unknown")
         provenance["equipment_history"] = station_meta["equipment_history"]
+        provenance["metadata_note"] = (
+            "Station name, location, and elevation are from the most recent entry "
+            "in igra2-metadata.txt. Equipment history includes all catalog entries.")
     return provenance
 
 
