@@ -489,6 +489,9 @@ def _parse_eol(fpath):
 
     # Observation time: hh (col 1), mm (col 2), ss (col 3) → absolute datetime.
     # These are clock times (UTC), not elapsed. Combine with launch date.
+    # Handle midnight rollover: if a sonde launches near midnight, some
+    # observation clock times (e.g. 00:05) belong to the next calendar day.
+    # Detect by checking for large backward jumps (>12 h before launch).
     obs_time = None
     if launch_time is not None:
         hh = _replace_missing(data[:, 1], MISSING)
@@ -497,6 +500,9 @@ def _parse_eol(fpath):
         launch_date = launch_time.astype("datetime64[D]")
         secs = hh * 3600 + mm * 60 + ss
         obs_time = launch_date + (secs * 1e9).astype("timedelta64[ns]")
+        # Correct midnight rollover: obs times >12 h before launch → next day
+        rollover = (launch_time - obs_time) > np.timedelta64(12, "h")
+        obs_time[rollover] += np.timedelta64(1, "D")
 
     return {
         "sonde_id": sonde_id,
@@ -789,16 +795,27 @@ def read_hs3(data_dir):
 #  PREDICT  (EOL format, NSF/NCAR GV)
 # ---------------------------------------------------------------------------
 
+# Profiles with failed sensors (no usable pressure or temperature).
+PREDICT_EXCLUDE = {
+    "D20100815_113933_P.QC.eol",  # bad pressure sensor (operator: "no good")
+    "D20100906_162944_P.QC.eol",  # no temperature, lost telemetry
+    "D20100928_155055_P.QC.eol",  # lost temperature at launch
+}
+
+
 def read_predict(data_dir):
     """Read PREDICT dropsonde profiles (EOL format).
 
     Files are in the top-level data directory: *.eol
+    Three profiles with failed sensors are excluded.
     """
     pattern = os.path.join(data_dir, "*.eol")
     files = sorted(glob.glob(pattern))
     profiles = []
 
     for fpath in files:
+        if os.path.basename(fpath) in PREDICT_EXCLUDE:
+            continue
         profile = _parse_eol(fpath)
         if profile is not None:
             profile.pop("operator_comment", None)
