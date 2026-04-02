@@ -1,10 +1,8 @@
 """
 Process all datasets: read → regrid → diagnose → write NetCDF.
 
-Produces one NetCDF per dropsonde dataset and one per year for IGRA.
-Output dimensions are (launch_location, launch_time, altitude).
-For dropsondes, launch_time has size 1 (one sounding per location).
-For radiosondes, profiles are grouped by station.
+Produces one NetCDF per dropsonde dataset and one per IGRA station.
+Output dimensions are (sounding_id, altitude).
 
 Usage:
     python process.py                 # process all datasets
@@ -45,9 +43,9 @@ Z_MAX_DEFAULT = 20000.0   # 20 km for dropsonde datasets
 Z_MAX_IGRA = 40000.0      # 40 km for IGRA radiosondes
 DZ = DEFAULT_DZ
 
-IGRA_YEAR_MIN = 2025
+IGRA_YEAR_MIN = 2000
 IGRA_YEAR_MAX = 2025
-IGRA_SUBSAMPLE = 10       # keep every Nth day (1 = all, 10 = DOY 1, 11, 21, ...)
+IGRA_SUBSAMPLE = 1        # keep every Nth day (1 = all)
 
 DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE"]
 
@@ -277,7 +275,7 @@ DATASETS = {
             "instrument": "Various radiosondes",
             "platform": "Ground stations (1500+ globally)",
             "region": "Global",
-            "period": "2025 (subsampled every 10th day)",
+            "period": "2000-2025",
             "citation": "Durre et al. (2006), doi:10.1175/JCLI3594.1",
             "qc_applied": "IGRA automated QA (physical plausibility, internal consistency, "
                           "climatological outliers, temporal consistency). "
@@ -321,12 +319,15 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
     out["launch_lon"].attrs = {**LAUNCH_LON_ATTRS, "long_name": lon_long_name}
     out["launch_time"].attrs = {"long_name": "date and time of sounding launch"}
     out["observation_time"].attrs = {"long_name": "observation time at each altitude level"}
+    if "nominal_time" in out:
+        out["nominal_time"].attrs = {
+            "long_name": "nominal synoptic time (0, 6, 12, or 18 UTC)"}
     for var, attrs in VARIABLE_ATTRS.items():
         if var in out:
             out[var].attrs = attrs
 
 
-def _global_attrs(name, z_max, n_locations, n_soundings, n_alt, provenance=None):
+def _global_attrs(name, z_max, n_soundings, n_alt, provenance=None):
     """Standard global attributes with per-dataset provenance."""
     attrs = {
         "title": f"Regridded sonde profiles — {name}",
@@ -338,7 +339,6 @@ def _global_attrs(name, z_max, n_locations, n_soundings, n_alt, provenance=None)
         "grid_spacing_m": DZ,
         "grid_min_m": Z_MIN,
         "grid_max_m": z_max,
-        "n_launch_locations": n_locations,
         "n_soundings": n_soundings,
         "n_altitude_levels": n_alt,
         "variables_directly_gridded": "u, v, p, T, RH",
@@ -353,10 +353,9 @@ def _global_attrs(name, z_max, n_locations, n_soundings, n_alt, provenance=None)
 
 def process_dataset(name, reader, data_path, z_max=None, profiles=None,
                     provenance=None):
-    """Read, regrid, and save one dropsonde dataset.
+    """Read, regrid, and save one dataset.
 
-    Output dimensions: (launch_location, launch_time, altitude)
-    where launch_time has size 1 (each dropsonde launched once per location).
+    Output dimensions: (sounding_id, altitude).
     """
     if z_max is None:
         z_max = Z_MAX_DEFAULT
@@ -380,158 +379,194 @@ def process_dataset(name, reader, data_path, z_max=None, profiles=None,
         print("  No profiles — skipping.")
         return
 
+    # Drop profiles that can't be regridded (no valid altitude values)
+    def _has_data(p):
+        alt = p.get("altitude")
+        if alt is None or not np.any(np.isfinite(alt)):
+            return False
+        return True
+
+    n_before = len(profiles)
+    profiles = [p for p in profiles if _has_data(p)]
+    if len(profiles) < n_before:
+        print(f"  Dropped {n_before - len(profiles)} empty profiles")
+    if not profiles:
+        print("  No profiles with valid data — skipping.")
+        return
+
     edges = make_grid(Z_MIN, z_max, DZ)
     altitude = 0.5 * (edges[:-1] + edges[1:])
     n_alt = len(altitude)
-    n_loc = len(profiles)
+    n_prof = len(profiles)
 
-    # Pre-allocate: (launch_location, 1, altitude)
-    data_arrays = {var: np.full((n_loc, 1, n_alt), np.nan) for var in DATA_VARIABLES}
-    obs_time_arr = np.full((n_loc, 1, n_alt), np.datetime64("NaT"), dtype="datetime64[ns]")
+    data_arrays = {var: np.full((n_prof, n_alt), np.nan) for var in DATA_VARIABLES}
+    obs_time_arr = np.full((n_prof, n_alt), np.datetime64("NaT"), dtype="datetime64[ns]")
     sonde_ids = []
-    launch_times = np.empty((n_loc, 1), dtype="datetime64[ns]")
-    launch_lats = np.full(n_loc, np.nan)
-    launch_lons = np.full(n_loc, np.nan)
+    launch_times = np.empty(n_prof, dtype="datetime64[ns]")
+    launch_lats = np.full(n_prof, np.nan)
+    launch_lons = np.full(n_prof, np.nan)
+    has_nominal = any("nominal_time" in p for p in profiles)
+    if has_nominal:
+        nominal_times = np.empty(n_prof, dtype="datetime64[ns]")
 
     t0 = time.time()
     for i, prof in enumerate(profiles):
         gridded = _regrid_profile(prof, z_max)
         for var in DATA_VARIABLES:
             if var in gridded:
-                data_arrays[var][i, 0, :] = gridded[var]
+                data_arrays[var][i, :] = gridded[var]
         if "observation_time" in gridded:
-            obs_time_arr[i, 0, :] = gridded["observation_time"]
+            obs_time_arr[i, :] = gridded["observation_time"]
 
         sonde_ids.append(prof.get("sonde_id", f"sonde_{i:06d}"))
-        launch_times[i, 0] = prof.get("launch_time") or np.datetime64("NaT")
+        launch_times[i] = prof.get("launch_time") or np.datetime64("NaT")
         launch_lats[i] = prof.get("launch_lat", np.nan)
         launch_lons[i] = prof.get("launch_lon", np.nan)
+        if has_nominal:
+            nominal_times[i] = prof.get("nominal_time") or np.datetime64("NaT")
 
     t_regrid = time.time() - t0
-    print(f"  Regridded in {t_regrid:.1f}s")
+    print(f"  Regridded {n_prof} profiles in {t_regrid:.1f}s")
 
-    dims = ("launch_location", "sounding", "altitude")
+    dims = ("sounding_id", "altitude")
+    coords = {
+        "altitude": altitude,
+        "sonde_id": ("sounding_id", sonde_ids),
+        "launch_time": ("sounding_id", launch_times),
+        "launch_lat": ("sounding_id", launch_lats),
+        "launch_lon": ("sounding_id", launch_lons),
+    }
+    if has_nominal:
+        coords["nominal_time"] = ("sounding_id", nominal_times)
     out = xr.Dataset(
         {var: (dims, data_arrays[var]) for var in DATA_VARIABLES},
-        coords={
-            "altitude": altitude,
-            "sonde_id": ("launch_location", sonde_ids),
-            "launch_time": (("launch_location", "sounding"), launch_times),
-            "launch_lat": ("launch_location", launch_lats),
-            "launch_lon": ("launch_location", launch_lons),
-        },
+        coords=coords,
     )
     out["observation_time"] = (dims, obs_time_arr)
 
     _set_coord_attrs(out)
     out["sonde_id"].attrs = {"long_name": "provider sonde or profile identifier"}
-    out.attrs = _global_attrs(name, z_max, n_loc, n_loc, n_alt, provenance)
+    out.attrs = _global_attrs(name, z_max, n_prof, n_alt, provenance)
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(outpath), exist_ok=True)
     out.to_netcdf(outpath)
-    print(f"  Saved {outpath} ({n_loc} locations × 1 time × {n_alt} levels)")
+    print(f"  Saved {outpath} ({n_prof} soundings × {n_alt} levels)")
 
 
-def process_igra():
-    """Process IGRA one year at a time.
+def _read_igra_metadata(metadata_path):
+    """Parse igra2-metadata.txt into a dict keyed by station ID.
 
-    Output dimensions: (launch_location, launch_time, altitude)
-    where launch_location indexes stations and launch_time indexes
-    soundings at each station (padded with NaN/NaT).
+    Returns dict[station_id] with keys: station_name, wmo_id, latitude,
+    longitude, elevation, equipment_history (full multi-line string).
+    """
+    stations = {}
+    with open(metadata_path) as f:
+        for line in f:
+            if len(line.strip()) < 50:
+                continue
+            station_id = line[0:11].strip()
+            wmo_id = line[12:17].strip()
+            station_name = line[18:48].strip()
+            try:
+                lat = float(line[49:57])
+                lon = float(line[57:67])
+                elev = float(line[67:75])
+            except ValueError:
+                lat = lon = elev = None
+
+            if station_id not in stations:
+                stations[station_id] = {
+                    "station_name": station_name,
+                    "wmo_id": wmo_id,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "elevation": elev,
+                    "equipment_history": line.rstrip(),
+                }
+            else:
+                # Update to most recent entry; append history
+                stations[station_id]["station_name"] = station_name
+                if lat is not None:
+                    stations[station_id]["latitude"] = lat
+                    stations[station_id]["longitude"] = lon
+                    stations[station_id]["elevation"] = elev
+                stations[station_id]["equipment_history"] += "\n" + line.rstrip()
+    return stations
+
+
+def process_igra(stations=None):
+    """Process IGRA: one file per station, all years combined.
+
+    Parameters
+    ----------
+    stations : list of str, optional
+        Station IDs to process. If None, process all stations.
+
+    Output dimensions: (sounding_id, altitude).
     """
     data_path = os.path.join(DATA_DIR, "igra")
+    metadata = _read_igra_metadata(os.path.join(data_path, "igra2-metadata.txt"))
 
-    for year in range(IGRA_YEAR_MIN, IGRA_YEAR_MAX + 1):
-        name = f"igra_{year}"
-        outpath = os.path.join(OUTPUT_DIR, f"{name}.nc")
-        if os.path.exists(outpath):
-            print(f"\nSkipping {name} — {outpath} already exists")
-            continue
+    print(f"\n{'='*60}")
+    print(f"Processing IGRA ({IGRA_YEAR_MIN}-{IGRA_YEAR_MAX})")
+    print(f"{'='*60}")
 
-        print(f"\n{'='*60}")
-        print(f"Processing {name} (subsample={IGRA_SUBSAMPLE})")
-        print(f"{'='*60}")
+    t0 = time.time()
+    profs = read_igra(data_path, year_min=IGRA_YEAR_MIN, year_max=IGRA_YEAR_MAX,
+                      subsample=IGRA_SUBSAMPLE, stations=stations)
+    t_read = time.time() - t0
+    print(f"  Read {len(profs)} profiles in {t_read:.1f}s")
 
-        t0 = time.time()
-        profs = read_igra(data_path, year=year, subsample=IGRA_SUBSAMPLE)
-        t_read = time.time() - t0
-        print(f"  Read {len(profs)} profiles in {t_read:.1f}s")
+    if not profs:
+        print("  No profiles — skipping.")
+        return
 
-        if not profs:
-            print("  No profiles — skipping.")
-            continue
+    by_station = defaultdict(list)
+    for prof in profs:
+        by_station[prof["station_id"]].append(prof)
 
-        # Group profiles by station
-        by_station = defaultdict(list)
-        for prof in profs:
-            by_station[prof["station_id"]].append(prof)
+    n_stations = len(by_station)
+    print(f"  {n_stations} stations to process")
 
-        stations = sorted(by_station.keys())
-        n_stations = len(stations)
-        max_times = max(len(by_station[s]) for s in stations)
-
-        edges = make_grid(Z_MIN, Z_MAX_IGRA, DZ)
-        altitude = 0.5 * (edges[:-1] + edges[1:])
-        n_alt = len(altitude)
-
-        # Pre-allocate: (n_stations, max_times, n_alt)
-        data_arrays = {var: np.full((n_stations, max_times, n_alt), np.nan)
-                       for var in DATA_VARIABLES}
-        obs_time_arr = np.full((n_stations, max_times, n_alt),
-                               np.datetime64("NaT"), dtype="datetime64[ns]")
-        launch_times = np.full((n_stations, max_times), np.datetime64("NaT"),
-                               dtype="datetime64[ns]")
-        station_ids = []
-        launch_lats = np.full(n_stations, np.nan)
-        launch_lons = np.full(n_stations, np.nan)
-
-        t0 = time.time()
-        for si, station in enumerate(stations):
-            station_profs = by_station[station]
-            station_ids.append(station)
-            launch_lats[si] = station_profs[0].get("launch_lat", np.nan)
-            launch_lons[si] = station_profs[0].get("launch_lon", np.nan)
-
-            for ti, prof in enumerate(station_profs):
-                gridded = _regrid_profile(prof, Z_MAX_IGRA)
-                for var in DATA_VARIABLES:
-                    if var in gridded:
-                        data_arrays[var][si, ti, :] = gridded[var]
-                if "observation_time" in gridded:
-                    obs_time_arr[si, ti, :] = gridded["observation_time"]
-                launch_times[si, ti] = prof.get("launch_time") or np.datetime64("NaT")
-
-        t_regrid = time.time() - t0
-        print(f"  Regridded {len(profs)} profiles "
-              f"({n_stations} stations × ≤{max_times} times) in {t_regrid:.1f}s")
-
-        dims = ("launch_location", "sounding", "altitude")
-        out = xr.Dataset(
-            {var: (dims, data_arrays[var]) for var in DATA_VARIABLES},
-            coords={
-                "altitude": altitude,
-                "station_id": ("launch_location", station_ids),
-                "launch_time": (("launch_location", "sounding"), launch_times),
-                "launch_lat": ("launch_location", launch_lats),
-                "launch_lon": ("launch_location", launch_lons),
-            },
+    for station_id in sorted(by_station):
+        name = f"igra/{station_id}"
+        station_meta = metadata.get(station_id, {})
+        provenance = {**DATASETS["igra"]["provenance"]}
+        if station_meta:
+            provenance["station_name"] = station_meta["station_name"]
+            provenance["wmo_id"] = station_meta["wmo_id"]
+            provenance["station_elevation_m"] = (
+                str(station_meta["elevation"]) if station_meta["elevation"] is not None
+                else "unknown")
+            provenance["equipment_history"] = station_meta["equipment_history"]
+        process_dataset(
+            name, reader=None, data_path=None,
+            z_max=Z_MAX_IGRA,
+            profiles=by_station[station_id],
+            provenance=provenance,
         )
-        out["observation_time"] = (dims, obs_time_arr)
-
-        _set_coord_attrs(out, lat_long_name="latitude of station",
-                         lon_long_name="longitude of station")
-        out["station_id"].attrs = {"long_name": "IGRA station identifier"}
-        out.attrs = _global_attrs(name, Z_MAX_IGRA, n_stations, len(profs), n_alt,
-                                  DATASETS["igra"]["provenance"])
-
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        out.to_netcdf(outpath)
-        print(f"  Saved {outpath} "
-              f"({n_stations} stations × {max_times} times × {n_alt} levels)")
 
 
 def main():
-    names = sys.argv[1:] if len(sys.argv) > 1 else list(DATASETS.keys())
+    """Process datasets specified on the command line.
+
+    Usage:
+        python process.py                          # all datasets
+        python process.py joanne otrec             # specific dropsonde datasets
+        python process.py igra                     # all IGRA stations
+        python process.py igra:USM00072451,USM00072764  # specific IGRA stations
+    """
+    args = sys.argv[1:] if len(sys.argv) > 1 else list(DATASETS.keys())
+
+    # Parse igra:STATION1,STATION2 syntax
+    names = []
+    igra_stations = None
+    for arg in args:
+        if arg.startswith("igra:"):
+            names.append("igra")
+            igra_stations = arg.split(":", 1)[1].split(",")
+        else:
+            names.append(arg)
 
     for name in names:
         if name not in DATASETS and name != "igra":
@@ -541,7 +576,7 @@ def main():
 
     for name in names:
         if name == "igra":
-            process_igra()
+            process_igra(stations=igra_stations)
         else:
             cfg = DATASETS[name]
             process_dataset(name, cfg["reader"], cfg["path"],

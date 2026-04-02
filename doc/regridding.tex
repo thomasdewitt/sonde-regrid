@@ -39,7 +39,7 @@ Table~\ref{tab:datasets} summarizes the datasets included in this archive.
 \toprule
 Dataset & Profiles & Period & Region & Citation \\
 \midrule
-IGRA              & (subsampled) & 2025                      & Global                     & \citet{durre2006} \\
+IGRA              & (all)        & 2000--2025                & Global                     & \citet{durre2006} \\
 JOANNE            & 1068         & Jan--Feb 2020              & Tropical N Atlantic        & \citet{george2021} \\
 BEACH             & 976          & Aug--Sep 2024              & Tropical Atlantic          & \citet{gloeckner2025} \\
 OTREC             & 648          & Aug--Oct 2019              & E Pacific, Caribbean       & \citet{vomel2021} \\
@@ -60,7 +60,7 @@ HALO--(AC)\textsuperscript{3}  & 463 & Mar--Apr 2022          & Arctic, Fram Str
 
 The Integrated Global Radiosonde Archive \citep{durre2006} is a quality-assured compilation of radiosonde observations from more than 1500 globally distributed stations, with records extending from the 1960s to the present.  Observations typically include pressure, temperature, dewpoint depression, geopotential height, wind direction, and wind speed.  IGRA integrates data from disparate sources and applies automated quality assurance that removes measurements failing checks for physical implausiblity, internal inconsistency, climatological outliers, and temporal inconsistency.
 
-We consider data from 2025. To reduce the volume of data, we only consider soundings launched every 10th day (e.g. DOY 1, 11, 21, 31, etc.).
+We consider all available soundings from 2000--2025.  Each station is written to a separate file spanning whatever date range it has data for.  Station metadata (name, location, elevation, equipment history) is extracted from the IGRA metadata catalog and stored as global attributes.
 
 \subsection{JOANNE}
 
@@ -219,8 +219,7 @@ where $T_L$ is the temperature at the lifting condensation level, estimated as
 
 \subsection{Output format} \label{sec:output}
 
-The regridded data are stored as one NetCDF-4 file per source dataset, or one file per year for IGRA.  Each file has three dimensions: \texttt{launch\_location}, \texttt{sounding}, and \texttt{altitude}.
-For radiosonde datasets, every launch from a given station shares the \texttt{launch\_location} coordinate. The size of the \texttt{sounding} dimension is 1 for dropsonde datasets given that each dropsonde is launched from a different spatial location.
+The regridded data are stored as one NetCDF-4 file per dropsonde campaign, or one file per station for IGRA (in an \texttt{igra/} subdirectory).  Each file has two dimensions: \texttt{sounding\_id} and \texttt{altitude}.  The \texttt{sounding\_id} dimension indexes individual profiles.  For dropsonde datasets each profile corresponds to a unique spatial location; for IGRA station files all profiles share the same station location but differ in launch time.
 The \texttt{altitude} coordinate contains the cell-center altitudes $\bar{z}_k$ from Eq.~\ref{eq:centers}, in meters above mean sea level.
 
 Each launch location carries the following metadata:
@@ -230,21 +229,20 @@ Each launch location carries the following metadata:
 \toprule
 Variable & Type & Description \\
 \midrule
-\texttt{launch\_time}        & datetime & Date and time of sounding launch (\texttt{launch\_location}, \texttt{sounding}) \\
-\texttt{observation\_time}  & datetime & Observation time at each altitude level (\texttt{launch\_location}, \texttt{sounding}, \texttt{altitude}) \\
-\texttt{launch\_lat}        & float    & Latitude at profile start [\si{\degree}N] \\
-\texttt{launch\_lon}        & float    & Longitude at profile start [\si{\degree}E] \\
-\texttt{sonde\_id}          & string   & Provider's sonde or profile identifier (dropsonde datasets) \\
-\texttt{station\_id}        & string   & Station identifier (radiosonde datasets) \\
+\texttt{launch\_time}        & datetime & Date and time of sounding launch (\texttt{sounding\_id}) \\
+\texttt{observation\_time}  & datetime & Observation time at each altitude level (\texttt{sounding\_id}, \texttt{altitude}) \\
+\texttt{launch\_lat}        & float    & Latitude at profile start [\si{\degree}N] (\texttt{sounding\_id}) \\
+\texttt{launch\_lon}        & float    & Longitude at profile start [\si{\degree}E] (\texttt{sounding\_id}) \\
+\texttt{sonde\_id}          & string   & Sonde or profile identifier (\texttt{sounding\_id}) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent The \texttt{observation\_time} variable records the actual measurement time at each altitude level, bin-averaged within each grid cell.  Each profile has either \texttt{sonde\_id} or \texttt{station\_id}, not both.  For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release, or the first GPS measurement in the profile when explicit release coordinates are not available.  For radiosondes, they refer to the launch site.
+\noindent The \texttt{observation\_time} variable records the actual measurement time at each altitude level, bin-averaged within each grid cell.  For dropsonde datasets, \texttt{launch\_lat} and \texttt{launch\_lon} refer to the aircraft position at the time of release, or the first GPS measurement in the profile when explicit release coordinates are not available.  For IGRA radiosondes, they refer to the launch site; the station identity is encoded in the filename and in the \texttt{sonde\_id} (format: \texttt{\{station\_id\}\_\{YYYYMMDDHH\}}).
 
 \subsection{Data variables}
 
-All regridded and diagnosed variables are stored with shape (\texttt{launch\_location}, \texttt{sounding}, \texttt{altitude}).  Missing values (grid cells with no measurements) are stored as NaN.
+All regridded and diagnosed variables are stored with shape (\texttt{sounding\_id}, \texttt{altitude}).  Missing values (grid cells with no measurements) are stored as NaN.
 
 
 

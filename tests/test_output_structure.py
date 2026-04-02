@@ -34,14 +34,19 @@ EXPECTED_UNITS = {
 REQUIRED_GLOBAL_ATTRS = [
     "title", "source", "history", "Conventions", "regridding_method",
     "grid_spacing_m", "grid_min_m", "grid_max_m",
-    "n_launch_locations", "n_soundings", "n_altitude_levels",
+    "n_soundings", "n_altitude_levels",
 ]
 
 
 def _find_output_files():
-    """Return list of (name, path) for all .nc files in output/."""
-    paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "*.nc")))
-    return [(os.path.splitext(os.path.basename(p))[0], p) for p in paths]
+    """Return list of (name, path) for all .nc files in output/ (recursive)."""
+    paths = sorted(glob.glob(os.path.join(OUTPUT_DIR, "**", "*.nc"), recursive=True))
+    result = []
+    for p in paths:
+        rel = os.path.relpath(p, OUTPUT_DIR)
+        name = os.path.splitext(rel)[0]  # e.g. "joanne" or "igra/ACM00078861"
+        result.append((name, p))
+    return result
 
 
 OUTPUT_FILES = _find_output_files()
@@ -59,13 +64,13 @@ def dataset(request):
 
 
 def _is_igra(name):
-    return name.startswith("igra")
+    return name.startswith("igra/") or name.startswith("igra_")
 
 
 class TestDimensions:
-    def test_has_three_dimensions(self, dataset):
+    def test_has_two_dimensions(self, dataset):
         name, ds = dataset
-        assert set(ds.dims) == {"launch_location", "sounding", "altitude"}
+        assert set(ds.dims) == {"sounding_id", "altitude"}
 
     def test_altitude_is_uniform(self, dataset):
         name, ds = dataset
@@ -78,46 +83,37 @@ class TestDimensions:
         alt = ds["altitude"].values
         assert alt[0] < alt[-1], "altitude should increase"
 
-    def test_dropsonde_sounding_dim_is_1(self, dataset):
-        name, ds = dataset
-        if _is_igra(name):
-            pytest.skip("IGRA has multiple soundings per station")
-        assert ds.sizes["sounding"] == 1
-
 
 class TestCoordinates:
     def test_has_launch_lat(self, dataset):
         _, ds = dataset
         assert "launch_lat" in ds.coords
-        assert ds["launch_lat"].dims == ("launch_location",)
+        assert ds["launch_lat"].dims == ("sounding_id",)
         assert ds["launch_lat"].attrs.get("units") == "degrees_north"
 
     def test_has_launch_lon(self, dataset):
         _, ds = dataset
         assert "launch_lon" in ds.coords
-        assert ds["launch_lon"].dims == ("launch_location",)
+        assert ds["launch_lon"].dims == ("sounding_id",)
         assert ds["launch_lon"].attrs.get("units") == "degrees_east"
 
     def test_has_launch_time(self, dataset):
         _, ds = dataset
         assert "launch_time" in ds
-        assert set(ds["launch_time"].dims) == {"launch_location", "sounding"}
+        assert ds["launch_time"].dims == ("sounding_id",)
         assert np.issubdtype(ds["launch_time"].dtype, np.datetime64)
         assert "long_name" in ds["launch_time"].attrs
 
     def test_has_observation_time(self, dataset):
         _, ds = dataset
         assert "observation_time" in ds
-        assert set(ds["observation_time"].dims) == {"launch_location", "sounding", "altitude"}
+        assert set(ds["observation_time"].dims) == {"sounding_id", "altitude"}
         assert np.issubdtype(ds["observation_time"].dtype, np.datetime64)
         assert "long_name" in ds["observation_time"].attrs
 
-    def test_has_location_id(self, dataset):
-        name, ds = dataset
-        if _is_igra(name):
-            assert "station_id" in ds.coords
-        else:
-            assert "sonde_id" in ds.coords
+    def test_has_sonde_id(self, dataset):
+        _, ds = dataset
+        assert "sonde_id" in ds.coords
 
     def test_altitude_attrs(self, dataset):
         _, ds = dataset
@@ -140,24 +136,22 @@ class TestCoordinates:
         """All profiles should span less than 6 hours from launch to last observation."""
         _, ds = dataset
         max_duration = np.timedelta64(6, "h")
-        launch = ds["launch_time"].values        # (location, sounding)
-        obs = ds["observation_time"].values       # (location, sounding, altitude)
-        n_loc, n_snd = launch.shape
-        for i in range(n_loc):
-            for j in range(n_snd):
-                lt = launch[i, j]
-                if np.isnat(lt):
-                    continue
-                obs_ij = obs[i, j, :]
-                valid = obs_ij[~np.isnat(obs_ij)]
-                if len(valid) == 0:
-                    continue
-                all_times = np.concatenate([[lt], valid])
-                span = all_times.max() - all_times.min()
-                assert span < max_duration, (
-                    f"profile ({i}, {j}) spans {span} "
-                    f"(launch {lt}, obs {all_times.min()} to {all_times.max()})"
-                )
+        launch = ds["launch_time"].values        # (sounding_id,)
+        obs = ds["observation_time"].values       # (sounding_id, altitude)
+        for i in range(len(launch)):
+            lt = launch[i]
+            if np.isnat(lt):
+                continue
+            obs_i = obs[i, :]
+            valid = obs_i[~np.isnat(obs_i)]
+            if len(valid) == 0:
+                continue
+            all_times = np.concatenate([[lt], valid])
+            span = all_times.max() - all_times.min()
+            assert span < max_duration, (
+                f"profile {i} spans {span} "
+                f"(launch {lt}, obs {all_times.min()} to {all_times.max()})"
+            )
 
 
 class TestDataVariables:
@@ -168,11 +162,7 @@ class TestDataVariables:
 
     def test_data_variable_shape(self, dataset):
         _, ds = dataset
-        expected_shape = (
-            ds.sizes["launch_location"],
-            ds.sizes["sounding"],
-            ds.sizes["altitude"],
-        )
+        expected_shape = (ds.sizes["sounding_id"], ds.sizes["altitude"])
         for var in DATA_VARIABLES:
             assert ds[var].shape == expected_shape, f"{var} shape mismatch"
 
@@ -203,22 +193,21 @@ class TestPhysicalPlausibility:
     def test_pressure_decreases_with_altitude(self, dataset):
         """Mean pressure in the lower half should exceed mean pressure in the upper half."""
         _, ds = dataset
-        p = ds["p"].values  # (location, sounding, altitude)
-        n_loc, n_snd, n_alt = p.shape
+        p = ds["p"].values  # (sounding_id, altitude)
+        n_prof, n_alt = p.shape
         mid = n_alt // 2
-        for i in range(n_loc):
-            for j in range(n_snd):
-                lower = p[i, j, :mid]
-                upper = p[i, j, mid:]
-                lower_valid = lower[np.isfinite(lower)]
-                upper_valid = upper[np.isfinite(upper)]
-                if len(lower_valid) == 0 or len(upper_valid) == 0:
-                    continue
-                assert lower_valid.mean() > upper_valid.mean(), (
-                    f"profile ({i}, {j}): mean pressure in lower half "
-                    f"({lower_valid.mean():.0f} Pa) <= upper half "
-                    f"({upper_valid.mean():.0f} Pa)"
-                )
+        for i in range(n_prof):
+            lower = p[i, :mid]
+            upper = p[i, mid:]
+            lower_valid = lower[np.isfinite(lower)]
+            upper_valid = upper[np.isfinite(upper)]
+            if len(lower_valid) == 0 or len(upper_valid) == 0:
+                continue
+            assert lower_valid.mean() > upper_valid.mean(), (
+                f"profile {i}: mean pressure in lower half "
+                f"({lower_valid.mean():.0f} Pa) <= upper half "
+                f"({upper_valid.mean():.0f} Pa)"
+            )
 
     def test_rh_range(self, dataset):
         _, ds = dataset
@@ -275,37 +264,33 @@ class TestDataCoverage:
     def test_each_profile_has_some_data(self, dataset):
         """Every profile should have at least one non-NaN value across all variables."""
         _, ds = dataset
-        n_loc, n_snd, _ = ds["T"].shape
-        for i in range(n_loc):
-            for j in range(n_snd):
-                any_valid = False
-                for var in DATA_VARIABLES:
-                    col = ds[var].values[i, j, :]
-                    if np.any(np.isfinite(col)):
-                        any_valid = True
-                        break
-                assert any_valid, (
-                    f"profile ({i}, {j}) is entirely NaN across all variables"
-                )
+        n_prof = ds.sizes["sounding_id"]
+        for i in range(n_prof):
+            any_valid = False
+            for var in DATA_VARIABLES:
+                col = ds[var].values[i, :]
+                if np.any(np.isfinite(col)):
+                    any_valid = True
+                    break
+            assert any_valid, (
+                f"profile {i} is entirely NaN across all variables"
+            )
 
     def test_observation_time_overall_trend(self, dataset):
         """observation_time should trend consistently along altitude (first vs last)."""
         _, ds = dataset
-        obs = ds["observation_time"].values  # (location, sounding, altitude)
-        n_loc, n_snd, _ = obs.shape
-        for i in range(n_loc):
-            for j in range(n_snd):
-                col = obs[i, j, :]
-                valid_mask = ~np.isnat(col)
-                if valid_mask.sum() < 5:
-                    continue
-                valid_times = col[valid_mask]
-                # Overall direction should be consistent: first and last
-                # should differ by more than any local jitter
-                span = valid_times[-1] - valid_times[0]
-                assert span != np.timedelta64(0), (
-                    f"profile ({i}, {j}): all observation_times are identical"
-                )
+        obs = ds["observation_time"].values  # (sounding_id, altitude)
+        n_prof = obs.shape[0]
+        for i in range(n_prof):
+            col = obs[i, :]
+            valid_mask = ~np.isnat(col)
+            if valid_mask.sum() < 5:
+                continue
+            valid_times = col[valid_mask]
+            span = valid_times[-1] - valid_times[0]
+            assert span != np.timedelta64(0), (
+                f"profile {i}: all observation_times are identical"
+            )
 
 
 class TestCoordinateConsistency:
@@ -316,36 +301,33 @@ class TestCoordinateConsistency:
 
         Most datasets have <10 min gaps; DYNAMO uses a time_offset convention
         where the reference time is 1 hour after the first measurement.
+        Skipped for IGRA: elapsed times can start well after RELTIME launch.
         """
-        _, ds = dataset
-        launch = ds["launch_time"].values       # (location, sounding)
-        obs = ds["observation_time"].values      # (location, sounding, altitude)
-        tolerance = np.timedelta64(90, "m")
-        n_loc, n_snd = launch.shape
-        for i in range(n_loc):
-            for j in range(n_snd):
-                lt = launch[i, j]
-                if np.isnat(lt):
-                    continue
-                obs_ij = obs[i, j, :]
-                valid = obs_ij[~np.isnat(obs_ij)]
-                if len(valid) == 0:
-                    continue
-                first_obs = valid.min()
-                gap = abs(lt - first_obs)
-                assert gap <= tolerance, (
-                    f"profile ({i}, {j}): launch_time {lt} is {gap} from "
-                    f"first observation {first_obs} (tolerance: {tolerance})"
-                )
-
-    def test_unique_sonde_ids(self, dataset):
         name, ds = dataset
         if _is_igra(name):
-            ids = ds["station_id"].values
-        else:
-            ids = ds["sonde_id"].values
-        id_list = list(ids)
-        assert len(id_list) == len(set(id_list)), "duplicate sonde/station IDs found"
+            pytest.skip("IGRA elapsed times can start well after reported launch")
+        launch = ds["launch_time"].values       # (sounding_id,)
+        obs = ds["observation_time"].values      # (sounding_id, altitude)
+        tolerance = np.timedelta64(90, "m")
+        for i in range(len(launch)):
+            lt = launch[i]
+            if np.isnat(lt):
+                continue
+            obs_i = obs[i, :]
+            valid = obs_i[~np.isnat(obs_i)]
+            if len(valid) == 0:
+                continue
+            first_obs = valid.min()
+            gap = abs(lt - first_obs)
+            assert gap <= tolerance, (
+                f"profile {i}: launch_time {lt} is {gap} from "
+                f"first observation {first_obs} (tolerance: {tolerance})"
+            )
+
+    def test_unique_sonde_ids(self, dataset):
+        _, ds = dataset
+        ids = list(ds["sonde_id"].values)
+        assert len(ids) == len(set(ids)), "duplicate sonde IDs found"
 
 
 

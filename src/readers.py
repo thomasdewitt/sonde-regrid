@@ -948,7 +948,8 @@ def _parse_igra_value(text):
         return np.nan
 
 
-def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1):
+def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
+              stations=None):
     """Read IGRA v2 radiosonde profiles from zipped station files.
 
     Parameters
@@ -963,6 +964,8 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1):
     subsample : int
         Keep only soundings whose day-of-year satisfies
         (DOY - 1) % subsample == 0.  Default 1 keeps all soundings.
+    stations : list of str, optional
+        If given, only read these station IDs.  Skips all other zip files.
 
     IGRA stores:
       pressure   [Pa]
@@ -978,12 +981,17 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1):
         year_min = year
         year_max = year
 
+    stations_set = set(stations) if stations is not None else None
+
     pattern = os.path.join(data_dir, "*-data.txt.zip")
     zips = sorted(glob.glob(pattern))
     profiles = []
 
     for zpath in zips:
         station_id = os.path.basename(zpath).split("-data")[0]
+
+        if stations_set is not None and station_id not in stations_set:
+            continue
 
         with zipfile.ZipFile(zpath) as zf:
             txt_name = zf.namelist()[0]
@@ -1008,6 +1016,7 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1):
                 month = int(header[18:20])
                 day = int(header[21:23])
                 hour = int(header[24:26])
+                reltime_raw = header[27:31].strip()
                 numlev = int(header[32:36])
                 lat_raw = int(header[55:62].strip())
                 lon_raw = int(header[63:71].strip())
@@ -1034,14 +1043,29 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1):
                     i += 1 + numlev
                     continue
 
+            # Nominal synoptic time (0, 6, 12, 18 UTC)
+            nominal_time = None
             if hour in (0, 6, 12, 18):
                 try:
-                    launch_time = np.datetime64(datetime(year_val, month, day, hour))
+                    nominal_time = np.datetime64(datetime(year_val, month, day, hour))
                 except ValueError:
-                    launch_time = None
-            else:
-                # hour=99 or non-synoptic: preserve as NaT rather than fabricate
-                launch_time = None
+                    pass
+
+            # Actual launch time from RELTIME (HHMM format, 9999=missing)
+            launch_time = None
+            try:
+                reltime_int = int(reltime_raw)
+                if reltime_int != 9999 and 0 <= reltime_int <= 2359:
+                    rel_h = reltime_int // 100
+                    rel_m = reltime_int % 100
+                    launch_time = np.datetime64(
+                        datetime(year_val, month, day, rel_h, rel_m))
+            except (ValueError, IndexError):
+                pass
+
+            # Fall back to nominal time if RELTIME is missing
+            if launch_time is None:
+                launch_time = nominal_time
 
             # Parse data levels
             altitudes = []
@@ -1108,6 +1132,7 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1):
             profiles.append({
                 "sonde_id": f"{station_id}_{year_val:04d}{month:02d}{day:02d}{hour:02d}",
                 "launch_time": launch_time,
+                "nominal_time": nominal_time,
                 "launch_lat": launch_lat,
                 "launch_lon": launch_lon,
                 "station_id": station_id,
