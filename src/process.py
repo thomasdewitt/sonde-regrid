@@ -566,7 +566,9 @@ def process_igra(stations=None):
 
     print(f"  {len(todo)} stations to process")
 
-    for sid in todo:
+    n_todo = len(todo)
+    for idx, sid in enumerate(todo, 1):
+        print(f"\n  [{idx}/{n_todo}] {sid}")
         profs = read_igra(data_path, year_min=IGRA_YEAR_MIN, year_max=IGRA_YEAR_MAX,
                           subsample=IGRA_SUBSAMPLE, stations=[sid])
         if not profs:
