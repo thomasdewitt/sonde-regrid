@@ -1052,6 +1052,10 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
                     pass
 
             # Actual launch time from RELTIME (HHMM format, 9999=missing)
+            # RELTIME is anchored to the header date, but for 00Z soundings
+            # the launch often occurs the previous evening (e.g., RELTIME=2312
+            # on a Jan 2 00Z header means Dec 31 23:12, not Jan 2 23:12).
+            # Fix: if RELTIME places launch_time >12h from nominal, shift by -1 day.
             launch_time = None
             try:
                 reltime_int = int(reltime_raw)
@@ -1061,6 +1065,10 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
                     if 0 <= rel_h <= 23 and 0 <= rel_m <= 59:
                         launch_time = np.datetime64(
                             datetime(year_val, month, day, rel_h, rel_m))
+                        if nominal_time is not None:
+                            diff = launch_time - nominal_time
+                            if diff > np.timedelta64(12, "h"):
+                                launch_time -= np.timedelta64(1, "D")
             except (ValueError, IndexError):
                 pass
 
