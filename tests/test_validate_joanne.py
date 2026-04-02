@@ -72,7 +72,7 @@ def test_joanne_validation():
         j = l3_idx[sonde_id]
 
         for our_var, l3_var in comparisons.items():
-            our_vals = ours[our_var].values[i, 0, alt_mask]
+            our_vals = ours[our_var].values[i, alt_mask]
 
             l3_raw = l3[l3_var].values[j, :]
             # Interpolate L3 to our cell centers

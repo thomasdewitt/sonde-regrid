@@ -572,13 +572,15 @@ def main():
     """
     args = sys.argv[1:] if len(sys.argv) > 1 else list(DATASETS.keys())
 
-    # Parse igra:STATION1,STATION2 syntax
+    # Parse igra:STATION1,STATION2 syntax (multiple igra: args are merged)
     names = []
     igra_stations = None
     for arg in args:
         if arg.startswith("igra:"):
-            names.append("igra")
-            igra_stations = arg.split(":", 1)[1].split(",")
+            if "igra" not in names:
+                names.append("igra")
+            these = arg.split(":", 1)[1].split(",")
+            igra_stations = (igra_stations or []) + these
         else:
             names.append(arg)
 
