@@ -1,0 +1,15 @@
+[project]
+name = "sonde-regrid"
+version = "0.1.0"
+description = "Uniform vertical regridding of radiosonde and dropsonde profiles"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "xarray",
+    "netcdf4",
+    "zarr",
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

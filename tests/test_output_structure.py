@@ -67,6 +67,10 @@ def _is_igra(name):
     return name.startswith("igra/") or name.startswith("igra_")
 
 
+def _is_synthetic(name):
+    return name.startswith("sam_") or name.startswith("multifractal_")
+
+
 class TestDimensions:
     def test_has_two_dimensions(self, dataset):
         name, ds = dataset
@@ -122,7 +126,9 @@ class TestCoordinates:
         assert attrs.get("positive") == "up"
 
     def test_lat_lon_ranges(self, dataset):
-        _, ds = dataset
+        name, ds = dataset
+        if _is_synthetic(name):
+            pytest.skip("synthetic datasets have no geolocation (periodic LES / synthetic)")
         lats = ds["launch_lat"].values
         lons = ds["launch_lon"].values
         finite_lats = lats[np.isfinite(lats)]

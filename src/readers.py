@@ -1155,3 +1155,126 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
             })
 
     return profiles
+
+
+# ---------------------------------------------------------------------------
+#  SAM/LES simulated sondes  (sibling repo ../simulated-sondes)
+# ---------------------------------------------------------------------------
+
+# Source `launch_time` is seconds since simulation start.  The LES is based on
+# the TWPICE campaign; we anchor the relative times to the TWPICE observation
+# window so that the output `launch_time` coordinate is a real datetime64.
+SAM_EPOCH = np.datetime64("2006-01-23T00:00:00", "ns")
+
+
+def _read_sam_file(path, sonde_prefix):
+    """Read one SAM/LES NetCDF into the standard profile-dict list.
+
+    The file has dims (sonde=1000, altitude=1000) with U, V [m/s], QV [g/kg],
+    P [Pa], plus per-sonde launch_time [s since sim start], launch_x/y [m].
+    No temperature or relative humidity are reported, so the pipeline's q
+    branch is used: QV is converted to kg/kg and passed as `q`, and the
+    thermodynamic diagnostics that depend on T will remain all-NaN.
+    """
+    ds = xr.open_dataset(path, decode_times=False)
+    altitude = ds["altitude"].values.astype(np.float64)
+    U = ds["U"].values
+    V = ds["V"].values
+    QV = ds["QV"].values         # g/kg
+    P = ds["P"].values           # Pa
+    launch_seconds = ds["launch_time"].values.astype(np.float64)
+    ds.close()
+
+    n = U.shape[0]
+    launch_times = SAM_EPOCH + (launch_seconds * 1e9).astype("timedelta64[ns]")
+
+    profiles = []
+    for i in range(n):
+        profiles.append({
+            "sonde_id": f"{sonde_prefix}_{i:04d}",
+            "launch_time": launch_times[i],
+            "launch_lat": np.nan,
+            "launch_lon": np.nan,
+            "altitude": altitude,
+            "u": U[i, :].astype(np.float64),
+            "v": V[i, :].astype(np.float64),
+            "p": P[i, :].astype(np.float64),
+            "q": QV[i, :].astype(np.float64) * 1e-3,  # g/kg → kg/kg
+        })
+    return profiles
+
+
+def read_sam_dropsondes(data_dir):
+    """Read simulated LES dropsondes (1000 profiles)."""
+    return _read_sam_file(os.path.join(data_dir, "simulated_dropsondes.nc"),
+                          sonde_prefix="sam_drop")
+
+
+def read_sam_radiosondes(data_dir):
+    """Read simulated LES radiosondes (1000 profiles)."""
+    return _read_sam_file(os.path.join(data_dir, "simulated_radiosondes.nc"),
+                          sonde_prefix="sam_radio")
+
+
+def read_sam_columns(data_dir):
+    """Read instantaneous LES columns (1000 profiles, no sonde drift)."""
+    return _read_sam_file(os.path.join(data_dir, "instantaneous_columns.nc"),
+                          sonde_prefix="sam_col")
+
+
+# ---------------------------------------------------------------------------
+#  Multifractal synthetic profiles  (sibling repo ../simulated-sondes)
+# ---------------------------------------------------------------------------
+
+def _read_multifractal_file(path, sonde_prefix):
+    """Read one multifractal NetCDF into the standard profile-dict list.
+
+    The file has dims (sonde=1000, altitude=20000) with a single variable
+    `u` (m/s) at 1 m spacing.  No other physical variables exist, and the
+    profiles are synthetic, so launch_time / launch_lat / launch_lon are
+    NaT / NaN.
+    """
+    ds = xr.open_dataset(path)
+    altitude = ds["altitude"].values.astype(np.float64)
+    u = ds["u"].values
+    ds.close()
+
+    profiles = []
+    for i in range(u.shape[0]):
+        profiles.append({
+            "sonde_id": f"{sonde_prefix}_{i:04d}",
+            "launch_time": None,
+            "launch_lat": np.nan,
+            "launch_lon": np.nan,
+            "altitude": altitude,
+            "u": u[i, :].astype(np.float64),
+        })
+    return profiles
+
+
+def read_multifractal_uniform_H06(data_dir):
+    """Read multifractal uniform H=0.6 synthetic profiles (1000)."""
+    return _read_multifractal_file(
+        os.path.join(data_dir, "simulated_multifractal_uniform_H06.nc"),
+        sonde_prefix="mf_uniform_H06")
+
+
+def read_multifractal_uniform_H06_nosmooth(data_dir):
+    """Read multifractal uniform H=0.6 without B-spline smoothing (1000)."""
+    return _read_multifractal_file(
+        os.path.join(data_dir, "simulated_multifractal_uniform_H06_nosmooth.nc"),
+        sonde_prefix="mf_uniform_H06_nosmooth")
+
+
+def read_multifractal_broken_10m(data_dir):
+    """Read multifractal broken regime (H=0.3 below 10 m, H=1 above) (1000)."""
+    return _read_multifractal_file(
+        os.path.join(data_dir, "simulated_multifractal_broken_10m.nc"),
+        sonde_prefix="mf_broken_10m")
+
+
+def read_multifractal_broken_1km(data_dir):
+    """Read multifractal broken regime (H=0.3 below 1 km, H=1 above) (1000)."""
+    return _read_multifractal_file(
+        os.path.join(data_dir, "simulated_multifractal_broken_1km.nc"),
+        sonde_prefix="mf_broken_1km")

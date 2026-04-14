@@ -32,6 +32,13 @@ from readers import (
     read_hs3,
     read_predict,
     read_igra,
+    read_sam_dropsondes,
+    read_sam_radiosondes,
+    read_sam_columns,
+    read_multifractal_uniform_H06,
+    read_multifractal_uniform_H06_nosmooth,
+    read_multifractal_broken_10m,
+    read_multifractal_broken_1km,
 )
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -282,6 +289,164 @@ DATASETS = {
                           "climatological outliers, temporal consistency). "
                           "Geopotential height converted to geometric altitude.",
             "source_product": "IGRA v2 station data files",
+        },
+    },
+    "sam_dropsondes": {
+        "reader": read_sam_dropsondes,
+        "path": os.path.join(DATA_DIR, "sam-les-simulations"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "Simulated (SAM LES, TWPICE)",
+            "instrument": "Simulated dropsonde (ACTIVATE-like fall rate)",
+            "platform": "Virtual, SAM large-eddy simulation",
+            "region": "Periodic LES domain (not geolocated)",
+            "period": "2-hour LES snapshot window",
+            "citation": "DeWitt (2026), simulated-sondes repository",
+            "qc_applied": "Numerical integration through 3D LES wind field; "
+                          "bin-averaged onto 10 m grid in the source pipeline.",
+            "source_product": "simulated_dropsondes.nc from ../simulated-sondes",
+            "simulation_note": "1000 synthetic dropsondes launched at random x,y and time "
+                               "in the first hour of a 2-hour TWPICE LES window; fall rate "
+                               "linearly from 20 m/s at 10 km to 11 m/s at the surface, "
+                               "advected by the local 3D wind.",
+            "simulation_epoch": "2006-01-23T00:00:00Z (TWPICE observation window; launch_time "
+                                "encodes relative offsets from this anchor, not real times)",
+        },
+    },
+    "sam_radiosondes": {
+        "reader": read_sam_radiosondes,
+        "path": os.path.join(DATA_DIR, "sam-les-simulations"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "Simulated (SAM LES, TWPICE)",
+            "instrument": "Simulated radiosonde (5 m/s ascent)",
+            "platform": "Virtual, SAM large-eddy simulation",
+            "region": "Periodic LES domain (not geolocated)",
+            "period": "2-hour LES snapshot window",
+            "citation": "DeWitt (2026), simulated-sondes repository",
+            "qc_applied": "Numerical integration through 3D LES wind field; "
+                          "bin-averaged onto 10 m grid in the source pipeline.",
+            "source_product": "simulated_radiosondes.nc from ../simulated-sondes",
+            "simulation_note": "1000 synthetic radiosondes launched at random x,y and time "
+                               "in the first hour of a 2-hour TWPICE LES window, rising at "
+                               "5 m/s to 10 km, advected by the local 3D wind.",
+            "simulation_epoch": "2006-01-23T00:00:00Z (TWPICE observation window; launch_time "
+                                "encodes relative offsets from this anchor, not real times)",
+        },
+    },
+    "sam_columns": {
+        "reader": read_sam_columns,
+        "path": os.path.join(DATA_DIR, "sam-les-simulations"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "Simulated (SAM LES, TWPICE)",
+            "instrument": "Instantaneous vertical column (no sonde drift)",
+            "platform": "Virtual, SAM large-eddy simulation",
+            "region": "Periodic LES domain (not geolocated)",
+            "period": "2-hour LES snapshot window",
+            "citation": "DeWitt (2026), simulated-sondes repository",
+            "qc_applied": "Interpolated to 10 m grid in the source pipeline.",
+            "source_product": "instantaneous_columns.nc from ../simulated-sondes",
+            "simulation_note": "1000 vertical columns extracted at random x,y locations, "
+                               "distributed across all LES snapshots. Serves as a drift-free "
+                               "control for the sonde-drift simulations.",
+            "simulation_epoch": "2006-01-23T00:00:00Z (TWPICE observation window; launch_time "
+                                "encodes relative offsets from this anchor, not real times)",
+        },
+    },
+    "multifractal_uniform_H06": {
+        "reader": read_multifractal_uniform_H06,
+        "path": os.path.join(DATA_DIR, "multifractals"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "Synthetic multifractal (uniform H=0.6)",
+            "instrument": "FIF cascade with fractional integration and cubic B-spline smoothing",
+            "platform": "Synthetic",
+            "region": "N/A",
+            "period": "N/A",
+            "citation": "DeWitt (2026), simulated-sondes repository",
+            "qc_applied": "None; synthetic profiles with known scaling properties.",
+            "source_product": "simulated_multifractal_uniform_H06.nc from ../simulated-sondes",
+            "simulation_note": "Lévy-FIF multiplicative cascade (alpha=1.8, C1=0.02, H_fif=0) "
+                               "of length 4e6 coarsened to 40000 samples at 1 m, fractionally "
+                               "integrated with uniform H=0.6, smoothed with a cubic B-spline "
+                               "low-pass (Ooyama-style, 50 m cutoff), truncated to the bottom "
+                               "20 km, normalised to unit mean, scaled by 10.",
+            "alpha": "1.8",
+            "C1": "0.02",
+            "H": "0.6 (uniform)",
+            "smooth_kind": "cubic_bspline_lowpass_ooyama",
+            "smooth_cutoff_wavelength_m": "50.0",
+        },
+    },
+    "multifractal_uniform_H06_nosmooth": {
+        "reader": read_multifractal_uniform_H06_nosmooth,
+        "path": os.path.join(DATA_DIR, "multifractals"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "Synthetic multifractal (uniform H=0.6, no smoothing)",
+            "instrument": "FIF cascade with fractional integration, no smoothing",
+            "platform": "Synthetic",
+            "region": "N/A",
+            "period": "N/A",
+            "citation": "DeWitt (2026), simulated-sondes repository",
+            "qc_applied": "None; reference variant of uniform H=0.6 with the inertia-"
+                          "smoothing step omitted.",
+            "source_product": "simulated_multifractal_uniform_H06_nosmooth.nc from ../simulated-sondes",
+            "simulation_note": "Same construction as multifractal_uniform_H06 but without "
+                               "the cubic B-spline low-pass smoothing; serves as a reference "
+                               "for the effect of sonde-like inertia smoothing on scaling.",
+            "alpha": "1.8",
+            "C1": "0.02",
+            "H": "0.6 (uniform)",
+            "smooth_kind": "none",
+            "smooth_cutoff_wavelength_m": "0.0",
+        },
+    },
+    "multifractal_broken_10m": {
+        "reader": read_multifractal_broken_10m,
+        "path": os.path.join(DATA_DIR, "multifractals"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "Synthetic multifractal (broken regime, 10 m transition)",
+            "instrument": "FIF cascade with broken fractional integration and smoothing",
+            "platform": "Synthetic",
+            "region": "N/A",
+            "period": "N/A",
+            "citation": "DeWitt (2026), simulated-sondes repository",
+            "qc_applied": "None; synthetic profiles with known broken-scaling properties.",
+            "source_product": "simulated_multifractal_broken_10m.nc from ../simulated-sondes",
+            "simulation_note": "As multifractal_uniform_H06 but with broken fractional "
+                               "integration: H=0.3 below the 10 m transition and H=1.0 above.",
+            "alpha": "1.8",
+            "C1": "0.02",
+            "H": "0.3 (below 10 m) / 1.0 (above)",
+            "transition_m": "10.0",
+            "smooth_kind": "cubic_bspline_lowpass_ooyama",
+            "smooth_cutoff_wavelength_m": "50.0",
+        },
+    },
+    "multifractal_broken_1km": {
+        "reader": read_multifractal_broken_1km,
+        "path": os.path.join(DATA_DIR, "multifractals"),
+        "z_max": Z_MAX_DEFAULT,
+        "provenance": {
+            "campaign": "Synthetic multifractal (broken regime, 1 km transition)",
+            "instrument": "FIF cascade with broken fractional integration and smoothing",
+            "platform": "Synthetic",
+            "region": "N/A",
+            "period": "N/A",
+            "citation": "DeWitt (2026), simulated-sondes repository",
+            "qc_applied": "None; synthetic profiles with known broken-scaling properties.",
+            "source_product": "simulated_multifractal_broken_1km.nc from ../simulated-sondes",
+            "simulation_note": "As multifractal_uniform_H06 but with broken fractional "
+                               "integration: H=0.3 below the 1 km transition and H=1.0 above.",
+            "alpha": "1.8",
+            "C1": "0.02",
+            "H": "0.3 (below 1 km) / 1.0 (above)",
+            "transition_m": "1000.0",
+            "smooth_kind": "cubic_bspline_lowpass_ooyama",
+            "smooth_cutoff_wavelength_m": "50.0",
         },
     },
 }
