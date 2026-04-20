@@ -19,6 +19,7 @@ from diagnostics import (
     dry_static_energy,
     equivalent_potential_temperature,
 )
+from drift import integrate_drift
 
 DEFAULT_DZ = 10.0  # meters
 
@@ -96,7 +97,8 @@ def bin_average_time(altitude, times, edges):
     return result
 
 
-def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None):
+def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None,
+                  launch_lat=np.nan, launch_lon=np.nan):
     """Regrid a single sonde profile and diagnose derived variables.
 
     Parameters
@@ -113,13 +115,18 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None
         Grid spacing [m].
     obs_time : ndarray of datetime64, optional
         Per-observation timestamps, same length as altitude.
+    launch_lat, launch_lon : float, optional
+        Launch position.  Used to anchor the horizontal drift track
+        (§3.1 of the spec).  NaN disables lat/lon outputs.
 
     Returns
     -------
     ds : xarray.Dataset
         Regridded profile on cell-center altitudes, with both directly
         averaged and diagnosed variables.  Includes "observation_time"
-        if obs_time is provided.
+        if obs_time is provided, and horizontal drift fields (x_offset,
+        y_offset, lat, lon) when winds and observation_time are all
+        available on the grid.
     """
     edges = make_grid(z_min, z_max, dz)
     z_centers = 0.5 * (edges[:-1] + edges[1:])
@@ -161,6 +168,16 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None
     ds["altitude"].attrs = {"units": "m", "long_name": "altitude above mean sea level"}
 
     if obs_time is not None:
-        ds["observation_time"] = ("altitude", bin_average_time(altitude, obs_time, edges))
+        gridded_time = bin_average_time(altitude, obs_time, edges)
+        ds["observation_time"] = ("altitude", gridded_time)
+
+        if "u" in gridded and "v" in gridded:
+            x_off, y_off, lat, lon = integrate_drift(
+                gridded_time, gridded["u"], gridded["v"], launch_lat, launch_lon,
+            )
+            ds["x_offset"] = ("altitude", x_off)
+            ds["y_offset"] = ("altitude", y_off)
+            ds["lat"] = ("altitude", lat)
+            ds["lon"] = ("altitude", lon)
 
     return ds

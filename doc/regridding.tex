@@ -174,6 +174,10 @@ Variable & Description & Units & Type \\
 \texttt{theta\_e}           & Equivalent potential temperature   & \si{K}          & Diagnosed (Eq.~\ref{eq:theta_e}) \\
 \texttt{MSE}                & Moist static energy               & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:MSE}) \\
 \texttt{DSE}                & Dry static energy                 & \si{J\per kg}   & Diagnosed (Eq.~\ref{eq:DSE}) \\
+\texttt{x\_offset}          & Eastward offset from launch        & \si{m}          & Diagnosed (\S\ref{sec:drift}) \\
+\texttt{y\_offset}          & Northward offset from launch       & \si{m}          & Diagnosed (\S\ref{sec:drift}) \\
+\texttt{lat}                & Latitude at each level             & \si{\degree}N   & Diagnosed (\S\ref{sec:drift}) \\
+\texttt{lon}                & Longitude at each level            & \si{\degree}E   & Diagnosed (\S\ref{sec:drift}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -216,6 +220,30 @@ where $T_L$ is the temperature at the lifting condensation level, estimated as
 \begin{align}
     T_L = \frac{1}{\displaystyle\frac{1}{T - 55} - \frac{\ln(\mathrm{RH}/100)}{2840}} + 55. \label{eq:TL}
 \end{align}
+
+\subsection{Horizontal drift integration} \label{sec:drift}
+
+Most source datasets report per-level GPS coordinates, so that the horizontal position of the sonde is known at each altitude level as it drifts with the wind during its flight.  A small fraction of older files (notably 306 of 13{,}678 files in the 1996--2012 hurricane archive) lack position data entirely, and IGRA radiosondes never carry per-level coordinates.  Rather than retain the native coordinates for some datasets and not others, we compute the horizontal drift track uniformly for every profile by integrating the gridded horizontal winds in time, anchored at the launch position, and use the datasets that do report per-level coordinates as an end-to-end check (\S\ref{sec:validation}).
+
+For a single profile, let $\{\bar{z}_k\}$ denote the cell-center altitudes and $\{t_k\}$ the bin-averaged observation times.  The altitude bins are reindexed in ascending order of $t_k$; under this ordering, dropsondes progress downward and radiosondes upward without the need to distinguish the two.  The drift at the earliest-time bin is set equal to the launch position, and the drift at successive bins is accumulated using the trapezoidal rule on the gridded winds:
+\begin{align}
+    \Delta x_{i \to i+1} &= \tfrac{1}{2}\left(u_i + u_{i+1}\right)\left(t_{i+1} - t_i\right), \label{eq:dx} \\
+    \Delta y_{i \to i+1} &= \tfrac{1}{2}\left(v_i + v_{i+1}\right)\left(t_{i+1} - t_i\right), \label{eq:dy}
+\end{align}
+where $i$ indexes the time-sorted bins.  The cumulative east- and north-offsets from the launch point are
+\begin{align}
+    x_k = \sum_{i=0}^{k-1} \Delta x_{i \to i+1}, \qquad y_k = \sum_{i=0}^{k-1} \Delta y_{i \to i+1}.
+\end{align}
+Bins whose observation time is missing are omitted from the traversal and their offsets are recorded as missing.
+
+When $u$ or $v$ is missing at a bin, the integration carries forward the last valid value across the gap.  A running budget records the horizontal distance accumulated during the current gap, $d_\text{gap} = \sqrt{(\Delta x)^2 + (\Delta y)^2}$ summed over consecutive missing-wind steps, and is reset to zero as soon as a valid wind value is encountered.  Once $d_\text{gap}$ exceeds $\SI{1}{km}$, the integration is abandoned and all remaining bins (in time order) are marked as missing.  This threshold limits the horizontal error that can be incurred by extrapolating through a single unobserved region.
+
+Latitude and longitude at each level are obtained from the east- and north-offsets using a small-angle spherical correction anchored at the launch latitude:
+\begin{align}
+    \phi_k &= \phi_0 + \frac{180^\circ}{\pi}\frac{y_k}{R_e}, \label{eq:lat} \\
+    \lambda_k &= \lambda_0 + \frac{180^\circ}{\pi}\frac{x_k}{R_e \cos\phi_0}, \label{eq:lon}
+\end{align}
+where $\phi_0$ and $\lambda_0$ are the launch latitude and longitude, respectively, and $R_e = \SI{6371}{km}$ is the mean Earth radius.  For profiles without a launch location (e.g.\ the synthetic SAM and multifractal datasets), $x_k$ and $y_k$ are still computed when winds and times are available, but $\phi_k$ and $\lambda_k$ are left missing.
 
 \subsection{Output format} \label{sec:output}
 
@@ -275,6 +303,10 @@ BEACH (976 sondes)    & $T$             & 0.24   & $-$0.18       & \si{K} \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Horizontal drift}
+
+The drift integration described in \S\ref{sec:drift} is checked against the per-level GPS coordinates reported in the source files, for each dataset whose raw data contains them.  For a given dataset, a random sample of 200 native (altitude, latitude, longitude) triples is drawn from 20 randomly chosen profiles, restricted to levels at which all three fields are finite.  Each native altitude is matched to the nearest bin center in the regridded output, and the great-circle distance between the integrated and measured positions is computed using the haversine formula.  The test asserts that the maximum distance is below $\SI{500}{m}$ for every dataset, and also records the RMS distance across all sampled points.
 
 \bibliographystyle{apalike}
 \bibliography{references}

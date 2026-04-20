@@ -55,7 +55,8 @@ IGRA_YEAR_MIN = 2000
 IGRA_YEAR_MAX = 2025
 IGRA_SUBSAMPLE = 10       # keep every Nth day (1 = all, 10 = DOY 1, 11, 21, ...)
 
-DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE"]
+DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE",
+                   "x_offset", "y_offset", "lat", "lon"]
 
 VARIABLE_ATTRS = {
     "u":       {"units": "m s-1",   "long_name": "zonal wind",
@@ -79,6 +80,20 @@ VARIABLE_ATTRS = {
                 "comment": "cp*T + g*z + Lv*q"},
     "DSE":     {"units": "J kg-1",  "long_name": "dry static energy",
                 "comment": "cp*T + g*z"},
+    "x_offset": {"units": "m",       "long_name": "eastward drift from launch",
+                 "comment": "Trapezoidal integration of gridded u in time, anchored "
+                            "at the launch position. See doc/regridding.tex §3.1."},
+    "y_offset": {"units": "m",       "long_name": "northward drift from launch",
+                 "comment": "Trapezoidal integration of gridded v in time, anchored "
+                            "at the launch position. See doc/regridding.tex §3.1."},
+    "lat":      {"units": "degrees_north", "long_name": "latitude at each altitude level",
+                 "standard_name": "latitude",
+                 "comment": "Small-angle spherical conversion of y_offset using "
+                            "launch_lat. NaN if launch position is missing."},
+    "lon":      {"units": "degrees_east",  "long_name": "longitude at each altitude level",
+                 "standard_name": "longitude",
+                 "comment": "Small-angle spherical conversion of x_offset using "
+                            "launch_lat and launch_lon. NaN if launch position is missing."},
 }
 
 DATASETS = {
@@ -464,7 +479,9 @@ def _regrid_profile(prof, z_max, dz=None):
         variables["q"] = prof["q"]
     obs_time = prof.get("obs_time")
     ds = regrid_sonde(prof["altitude"], variables, z_min=Z_MIN, z_max=z_max, dz=dz,
-                      obs_time=obs_time)
+                      obs_time=obs_time,
+                      launch_lat=prof.get("launch_lat", np.nan),
+                      launch_lon=prof.get("launch_lon", np.nan))
     result = {var: ds[var].values for var in DATA_VARIABLES if var in ds}
     if "observation_time" in ds:
         result["observation_time"] = ds["observation_time"].values

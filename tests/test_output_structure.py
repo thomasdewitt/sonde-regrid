@@ -16,7 +16,8 @@ import xarray as xr
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 
-DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE"]
+DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE",
+                   "x_offset", "y_offset", "lat", "lon"]
 
 EXPECTED_UNITS = {
     "u": "m s-1",
@@ -29,6 +30,10 @@ EXPECTED_UNITS = {
     "theta_e": "K",
     "MSE": "J kg-1",
     "DSE": "J kg-1",
+    "x_offset": "m",
+    "y_offset": "m",
+    "lat": "degrees_north",
+    "lon": "degrees_east",
 }
 
 REQUIRED_GLOBAL_ATTRS = [
