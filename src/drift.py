@@ -62,12 +62,21 @@ def integrate_drift(obs_time, u, v, launch_lat, launch_lon,
 
     t_sec = _time_to_seconds(obs_time)
     finite_t = np.isfinite(t_sec)
-    if finite_t.sum() < 2:
+    if finite_t.sum() == 0:
         return x_offset, y_offset, lat, lon
 
     # Altitude indices with finite time, sorted by time
     idx_t = np.where(finite_t)[0]
     order = idx_t[np.argsort(t_sec[idx_t])]
+
+    # Single-timestamp case: only the earliest-time bin is anchored.
+    if len(order) == 1:
+        x_offset[order[0]] = 0.0
+        y_offset[order[0]] = 0.0
+        if np.isfinite(launch_lat) and np.isfinite(launch_lon):
+            lat[order[0]] = launch_lat
+            lon[order[0]] = launch_lon
+        return x_offset, y_offset, lat, lon
 
     u_arr = np.asarray(u, dtype=np.float64)
     v_arr = np.asarray(v, dtype=np.float64)

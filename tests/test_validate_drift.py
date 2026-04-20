@@ -335,6 +335,8 @@ def test_drift_matches_native(dataset_name):
 
     errors = []
     n_profiles_used = 0
+    n_profiles_native_found = 0
+    n_profiles_empty_gridded = 0
 
     for i in profile_order:
         if n_profiles_used >= N_PROFILES_PER_DATASET:
@@ -347,6 +349,7 @@ def test_drift_matches_native(dataset_name):
         valid_n = np.isfinite(alt_n) & np.isfinite(lat_n) & np.isfinite(lon_n)
         if valid_n.sum() < N_POINTS_PER_PROFILE:
             continue
+        n_profiles_native_found += 1
 
         native_idx = rng.choice(np.where(valid_n)[0],
                                   size=N_POINTS_PER_PROFILE, replace=False)
@@ -364,9 +367,22 @@ def test_drift_matches_native(dataset_name):
 
         if profile_has_match:
             n_profiles_used += 1
+        else:
+            n_profiles_empty_gridded += 1
 
-    if not errors:
-        pytest.skip(f"{dataset_name}: no matched profiles with both native and gridded lat/lon")
+    # A dataset-level skip is only allowed if the source data itself was
+    # unavailable (profiles couldn't be re-read with enough valid native
+    # lat/lon).  Once native data was found but the gridded product has
+    # no finite lat/lon, that is a failure, not a skip.
+    if n_profiles_native_found == 0:
+        pytest.skip(f"{dataset_name}: no native profiles with per-level lat/lon "
+                     "could be re-read from source")
+
+    assert n_profiles_used > 0, (
+        f"{dataset_name}: {n_profiles_native_found} native profiles carry "
+        f"per-level lat/lon, but the gridded output has no finite lat/lon "
+        f"on any of them (checked {n_profiles_empty_gridded})"
+    )
 
     errors = np.array(errors)
     max_err = float(errors.max())

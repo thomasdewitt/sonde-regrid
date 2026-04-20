@@ -542,7 +542,8 @@ def _global_attrs(name, z_max, n_soundings, n_alt, dz=None, provenance=None):
         "n_soundings": n_soundings,
         "n_altitude_levels": n_alt,
         "variables_directly_gridded": "u, v, p, T, RH",
-        "variables_diagnosed_post_gridding": "q, theta, theta_e, MSE, DSE",
+        "variables_diagnosed_post_gridding": "q, theta, theta_e, MSE, DSE, "
+                                              "x_offset, y_offset, lat, lon",
         "missing_value_note": "NaN indicates grid cells with no valid observations",
         "profile_filtering": "Profiles with no finite altitude values are excluded "
                              "prior to regridding (cannot be placed on the grid).",
