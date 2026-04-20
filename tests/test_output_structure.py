@@ -19,6 +19,8 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
 DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE",
                    "x_offset", "y_offset", "lat", "lon"]
 
+CLIM_VARIABLES = ["u_clim", "v_clim"]
+
 EXPECTED_UNITS = {
     "u": "m s-1",
     "v": "m s-1",
@@ -34,6 +36,8 @@ EXPECTED_UNITS = {
     "y_offset": "m",
     "lat": "degrees_north",
     "lon": "degrees_east",
+    "u_clim": "m s-1",
+    "v_clim": "m s-1",
 }
 
 REQUIRED_GLOBAL_ATTRS = [
@@ -187,6 +191,78 @@ class TestDataVariables:
         _, ds = dataset
         for var in DATA_VARIABLES:
             assert "long_name" in ds[var].attrs, f"{var} missing long_name"
+
+
+class TestClimatologyVariables:
+    """ERA5 climatology variables (u_clim, v_clim) have dual shape:
+    (sounding_id, altitude) for dropsondes, (month, altitude) for IGRA.
+
+    These tests are skipped if neither u_clim nor v_clim is present, which
+    is the expected state before ``src/attach_climatology.py`` has been run.
+    """
+
+    def test_clim_presence(self, dataset):
+        name, ds = dataset
+        if _is_synthetic(name):
+            pytest.skip("synthetic datasets have no launch coordinates")
+        if not any(v in ds for v in CLIM_VARIABLES):
+            pytest.skip("climatology not yet attached — run attach_climatology.py")
+        for var in CLIM_VARIABLES:
+            assert var in ds, f"missing climatology variable {var}"
+
+    def test_clim_shape(self, dataset):
+        name, ds = dataset
+        if _is_synthetic(name):
+            pytest.skip("synthetic datasets have no launch coordinates")
+        for var in CLIM_VARIABLES:
+            if var not in ds:
+                continue
+            if _is_igra(name):
+                assert ds[var].dims == ("month", "altitude"), (
+                    f"IGRA {var} expected (month, altitude), got {ds[var].dims}"
+                )
+                assert ds.sizes["month"] == 12
+            else:
+                assert ds[var].dims == ("sounding_id", "altitude"), (
+                    f"dropsonde {var} expected (sounding_id, altitude), "
+                    f"got {ds[var].dims}"
+                )
+
+    def test_clim_units(self, dataset):
+        name, ds = dataset
+        if _is_synthetic(name):
+            pytest.skip("synthetic datasets have no launch coordinates")
+        for var in CLIM_VARIABLES:
+            if var in ds:
+                assert ds[var].attrs.get("units") == "m s-1"
+
+    def test_clim_plausible(self, dataset):
+        """u_clim and v_clim should fall within |wind| < 150 m/s where finite."""
+        name, ds = dataset
+        if _is_synthetic(name):
+            pytest.skip("synthetic datasets have no launch coordinates")
+        for var in CLIM_VARIABLES:
+            if var not in ds:
+                continue
+            vals = ds[var].values
+            finite = np.isfinite(vals)
+            if not finite.any():
+                continue
+            assert np.all(np.abs(vals[finite]) < 150), (
+                f"|{var}| >= 150 m/s: max={np.abs(vals[finite]).max():.1f}"
+            )
+
+    def test_clim_has_some_finite(self, dataset):
+        """At least one finite climatology value per dataset."""
+        name, ds = dataset
+        if _is_synthetic(name):
+            pytest.skip("synthetic datasets have no launch coordinates")
+        for var in CLIM_VARIABLES:
+            if var not in ds:
+                continue
+            assert np.any(np.isfinite(ds[var].values)), (
+                f"{var} is entirely NaN across the file"
+            )
 
 
 class TestPhysicalPlausibility:

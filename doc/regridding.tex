@@ -178,6 +178,8 @@ Variable & Description & Units & Type \\
 \texttt{y\_offset}          & Northward offset from launch       & \si{m}          & Diagnosed (\S\ref{sec:drift}) \\
 \texttt{lat}                & Latitude at each level             & \si{\degree}N   & Diagnosed (\S\ref{sec:drift}) \\
 \texttt{lon}                & Longitude at each level            & \si{\degree}E   & Diagnosed (\S\ref{sec:drift}) \\
+\texttt{u\_clim}            & ERA5 climatological zonal wind     & \si{m\per s}    & Attached (\S\ref{sec:clim}) \\
+\texttt{v\_clim}            & ERA5 climatological meridional wind & \si{m\per s}   & Attached (\S\ref{sec:clim}) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -244,6 +246,16 @@ Latitude and longitude at each level are obtained from the east- and north-offse
     \lambda_k &= \lambda_0 + \frac{180^\circ}{\pi}\frac{x_k}{R_e \cos\phi_0}, \label{eq:lon}
 \end{align}
 where $\phi_0$ and $\lambda_0$ are the launch latitude and longitude, respectively, and $R_e = \SI{6371}{km}$ is the mean Earth radius.  For profiles without a launch location (e.g.\ the synthetic SAM and multifractal datasets), $x_k$ and $y_k$ are still computed when winds and times are available, but $\phi_k$ and $\lambda_k$ are left missing.
+
+\subsection{Climatological wind profiles} \label{sec:clim}
+
+A monthly climatological profile of zonal and meridional wind is attached to every sounding as a reference against which the instantaneous measurements can be assessed.  The climatology is derived from ERA5 monthly means over 1995--2025 on a $0.25^\circ$ lat/lon grid and a \SI{100}{m} altitude grid from 0 to \SI{40}{km}, constructed in the sibling repository \texttt{era5-climatology} by re-projecting monthly ERA5 reanalysis onto altitude per column.  Values below the ERA5 surface orography are stored as missing.
+
+For each launch location $(\phi_0, \lambda_0)$ and calendar month $m$, the climatological wind is obtained by (i) bilinear interpolation of the ERA5 slab for month $m$ onto $(\phi_0, \lambda_0)$, then (ii) linear interpolation of the resulting column in altitude onto the output cell centers $\bar{z}_k$.  Target altitudes above the ERA5 ceiling or below the local ERA5 surface orography remain missing.
+
+Attaching the climatology is implemented as a post-processing step, separate from the regridding pipeline.  Once the regridded NetCDF files have been produced by \texttt{src/process.py}, the companion script \texttt{src/attach\_climatology.py} iterates over them, interpolates the climatology one ERA5 variable at a time (so that only one $\sim 20$ GB slab resides in memory at a time), and rewrites each NetCDF with the new fields appended.  This split means the climatology can be regenerated (e.g.\ against a newer ERA5 product) without re-running the regridding, and vice versa.
+
+The storage layout differs between dataset types.  For dropsonde campaigns, each sounding has its own launch location and time, and the climatology for the relevant month is stored per sounding; the variables \texttt{u\_clim} and \texttt{v\_clim} share the \texttt{(sounding\_id, altitude)} shape of the directly gridded fields.  For IGRA station files, the station location is fixed but individual soundings span many different months; storing a separate profile per sounding would duplicate the same column many times at each station, so instead all twelve monthly profiles are stored once at the station location with shape \texttt{(month, altitude)}, where \texttt{month} is a new coordinate indexing calendar months $1\dots 12$.  Profiles for which a launch location or launch time is not available are stored as missing, which includes the synthetic SAM and multifractal datasets.
 
 \subsection{Output format} \label{sec:output}
 

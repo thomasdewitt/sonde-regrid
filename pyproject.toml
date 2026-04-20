@@ -9,6 +9,7 @@ dependencies = [
     "netcdf4",
     "zarr",
     "pytest",
+    "scipy>=1.15.3",
 ]
 
 [tool.pytest.ini_options]
