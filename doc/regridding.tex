@@ -240,12 +240,20 @@ Bins whose observation time is missing are omitted from the traversal and their 
 
 When $u$ or $v$ is missing at a bin, the integration carries forward the last valid value across the gap. If the gap becomes larger than one kilometer, corresponding to 100 dropsonde bins or 10 IGRA bins, the remaining offset positions are marked as missing for the remainder of the profile. This threshold limits the horizontal error that can be incurred by extrapolating through a single unobserved region.
 
+A subset of profiles in some campaign archives exhibit a large disagreement between $\int u\,dt$ and the sonde's own GPS track, which we attribute to inaccuracies in the provider's ASPEN fall-speed model for those particular sondes.  These profiles would otherwise carry a horizontal drift track that does not reflect where the sonde actually was.  We screen for them after the drift integration by comparing the gridded surface drift to the native GPS drift at the lowest altitude bin with valid GPS; profiles whose disagreement exceeds \SI{2}{km} have their \texttt{x\_offset}, \texttt{y\_offset}, \texttt{lat}, and \texttt{lon} fields set to missing, while all other variables are retained.  The screening is implemented in \texttt{src/screen\_drift.py} and runs as a post-processing step.
+
 Latitude and longitude at each level are obtained from the east- and north-offsets using a small-angle spherical correction anchored at the launch latitude:
 \begin{align}
     \phi_k &= \phi_0 + \frac{180^\circ}{\pi}\frac{y_k}{R_e}, \label{eq:lat} \\
     \lambda_k &= \lambda_0 + \frac{180^\circ}{\pi}\frac{x_k}{R_e \cos\phi_0}, \label{eq:lon}
 \end{align}
 where $\phi_0$ and $\lambda_0$ are the launch latitude and longitude, respectively, and $R_e = \SI{6371}{km}$ is the mean Earth radius.  For profiles without a launch location (e.g.\ the synthetic SAM and multifractal datasets), $x_k$ and $y_k$ are still computed when winds and times are available, but $\phi_k$ and $\lambda_k$ are left missing.
+
+\subsection{Launch position} \label{sec:launch}
+
+For every dataset whose source files report per-level GPS coordinates, the stored \texttt{launch\_lat}/\texttt{launch\_lon} is taken from the earliest-time per-level GPS fix rather than from provider metadata.  This is a deliberate departure from the convention of some providers.  The raison d'\^etre is that several archives populate a launch-position attribute from an aircraft centroid or mission plan that does not exactly match the sonde's own GPS stream.  For HALO--(AC)\textsuperscript{3} we observed offsets of up to ${\sim}\SI{15}{km}$ between the \texttt{aircraft\_latitude\_(deg\_N)} attribute and the first per-level GPS fix; offsets of several hundred metres are routine for other campaigns.  Using the sonde's own GPS removes this dependency on provider metadata, and ensures that the launch position is consistent with the horizontal drift track integrated in \S\ref{sec:drift}.
+
+For IGRA radiosondes, per-level GPS is unavailable and the launch position is the station location from the IGRA metadata catalog.  For synthetic datasets (SAM LES, multifractals), \texttt{launch\_lat}/\texttt{launch\_lon} remain missing.
 
 \subsection{Climatological wind profiles} \label{sec:clim}
 

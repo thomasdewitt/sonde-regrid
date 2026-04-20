@@ -81,16 +81,56 @@ def clear_cache():
     _ALT_COORD = None
 
 
-def _month_slab_interp(slab, lat_da, lon_da):
-    """Bilinear lat/lon interpolation of a single-month (altitude, lat, lon) slab.
+def _month_slab_interp(slab_values, lats, lons):
+    """Direct numpy bilinear lat/lon interpolation of a single-month slab.
 
-    Returns (N, n_altitude) float32 array, where N = len(lat_da).
+    ERA5 grid is regular: latitude descends 90 → -90 in 0.25° steps
+    (721 points) and longitude ascends 0 → 359.75 in 0.25° steps (1440
+    points, wraparound).  We skip xarray.interp here because its per-call
+    overhead dominates by ~15 s when each call is small (e.g. 12 points
+    at one IGRA station).
+
+    Parameters
+    ----------
+    slab_values : ndarray, shape (n_altitude, 721, 1440)
+        The raw float32 climatology slab for one month and variable.
+    lats : ndarray, shape (N,)
+        Target latitudes in degrees.
+    lons : ndarray, shape (N,)
+        Target longitudes in degrees, already folded into [0, 360).
+
+    Returns
+    -------
+    ndarray, shape (N, n_altitude), float32
     """
-    prof = slab.interp(latitude=lat_da, longitude=lon_da)
-    # xarray may return dims (altitude, N); ensure (N, altitude)
-    if prof.dims[0] == "altitude":
-        prof = prof.transpose(lat_da.dims[0], "altitude")
-    return prof.values
+    lats = np.asarray(lats, dtype=np.float64)
+    lons = np.asarray(lons, dtype=np.float64)
+    n_alt = slab_values.shape[0]
+
+    # Continuous indices into the ERA5 grid
+    lat_idx = (90.0 - lats) * 4.0
+    lon_idx = lons * 4.0
+
+    i0 = np.clip(np.floor(lat_idx).astype(np.int64), 0, 719)
+    i1 = i0 + 1
+    wi = (lat_idx - i0).astype(np.float32)
+
+    j0 = (np.floor(lon_idx).astype(np.int64)) % 1440
+    j1 = (j0 + 1) % 1440
+    wj = (lon_idx - np.floor(lon_idx)).astype(np.float32)
+
+    # slab_values[:, i, j] gives (n_alt, N) via fancy indexing
+    v00 = slab_values[:, i0, j0].T
+    v01 = slab_values[:, i0, j1].T
+    v10 = slab_values[:, i1, j0].T
+    v11 = slab_values[:, i1, j1].T
+
+    wi = wi[:, None]
+    wj = wj[:, None]
+    return ((1 - wi) * (1 - wj) * v00
+            + (1 - wi) * wj * v01
+            + wi * (1 - wj) * v10
+            + wi * wj * v11).astype(np.float32)
 
 
 def _altitude_interp(src_alt, src_vals, target_alt):
@@ -160,12 +200,12 @@ def interpolate_climatology_at_points(launch_lats, launch_lons, launch_months,
         if not mask.any():
             continue
         idx = np.where(mask)[0]
-        lat_da = xr.DataArray(launch_lats[idx], dims=["s"])
-        lon_da = xr.DataArray(lons_pos[idx], dims=["s"])
+        lats_m = launch_lats[idx]
+        lons_m = lons_pos[idx]
 
         for v in variables:
-            slab = _slab(v, m)
-            src_vals = _month_slab_interp(slab, lat_da, lon_da)
+            slab_values = _slab(v, m).values
+            src_vals = _month_slab_interp(slab_values, lats_m, lons_m)
             results[v][idx, :] = _altitude_interp(src_alt, src_vals,
                                                     target_altitudes)
 

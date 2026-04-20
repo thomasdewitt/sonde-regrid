@@ -64,6 +64,31 @@ def _first_finite(arr):
     return np.nan
 
 
+def _first_obs_position(time, lat, lon):
+    """Return (lat, lon) at the earliest-time sample where all three are finite.
+
+    Used to derive ``launch_lat``/``launch_lon`` from the sonde's own GPS
+    stream rather than from provider metadata, which for some datasets
+    (notably HALO-(AC)3) can disagree with the first GPS fix by several km.
+    Works for both time-ascending (EOL/FRD) and time-descending
+    (surface-first NetCDF like JOANNE, HALO-(AC)3) orderings.  Falls back
+    to (nan, nan) if no valid (time, lat, lon) triple exists.
+    """
+    lat = np.asarray(lat, dtype=np.float64)
+    lon = np.asarray(lon, dtype=np.float64)
+    time = np.asarray(time)
+    if time.dtype.kind == "M":
+        t_f = np.where(np.isnat(time), np.nan,
+                        time.astype("datetime64[ns]").astype(np.int64).astype(np.float64))
+    else:
+        t_f = np.asarray(time, dtype=np.float64)
+    valid = np.isfinite(t_f) & np.isfinite(lat) & np.isfinite(lon)
+    if not valid.any():
+        return np.nan, np.nan
+    k = np.where(valid)[0][np.argmin(t_f[valid])]
+    return float(lat[k]), float(lon[k])
+
+
 # Mean Earth radius [m] for geopotential ↔ geometric height conversion
 _RE = 6_371_000.0
 
@@ -104,11 +129,21 @@ def read_joanne(data_dir):
         wdir = ds["wdir"].values.astype(np.float64)
         u, v = _wind_components(wspd, wdir)
 
+        # Launch position: prefer the earliest-time per-level GPS fix
+        # over the aircraft-centroid attribute, which can be off by
+        # several km for some providers.  See doc/regridding.tex §3.3.
+        if "lat" in ds and "lon" in ds:
+            launch_lat, launch_lon = _first_obs_position(
+                ds["time"].values, ds["lat"].values, ds["lon"].values)
+        else:
+            launch_lat = float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan))
+            launch_lon = float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan))
+
         profiles.append({
             "sonde_id": str(ds["sonde_id"].values),
             "launch_time": ds["time"].values[0],
-            "launch_lat": float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan)),
-            "launch_lon": float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan)),
+            "launch_lat": launch_lat,
+            "launch_lon": launch_lon,
             "altitude": altitude,
             "obs_time": ds["time"].values,
             "p": p,
@@ -166,11 +201,19 @@ def read_beach(data_dir):
         u = ds["u"].values.astype(np.float64)
         v = ds["v"].values.astype(np.float64)
 
+        # Launch position: earliest-time per-level GPS (§3.3)
+        if "lat" in ds.coords and "lon" in ds.coords and "time" in ds.coords:
+            launch_lat, launch_lon = _first_obs_position(
+                ds.coords["time"].values, ds["lat"].values, ds["lon"].values)
+        else:
+            launch_lat = _first_finite(ds["lat"].values) if "lat" in ds.coords else np.nan
+            launch_lon = _first_finite(ds["lon"].values) if "lon" in ds.coords else np.nan
+
         profiles.append({
             "sonde_id": str(ds["sonde_id"].values),
             "launch_time": ds["launch_time"].values if "launch_time" in ds else None,
-            "launch_lat": _first_finite(ds["lat"].values) if "lat" in ds.coords else np.nan,
-            "launch_lon": _first_finite(ds["lon"].values) if "lon" in ds.coords else np.nan,
+            "launch_lat": launch_lat,
+            "launch_lon": launch_lon,
             "altitude": altitude,
             "obs_time": ds.coords["time"].values if "time" in ds.coords else None,
             "p": p,
@@ -223,11 +266,15 @@ def read_otrec(data_dir):
         u, v = _wind_components(wspd, wdir)
 
         launch_time = ds["launch_time"].values
-        # First valid lat/lon for launch position
+        # Launch position: earliest-time per-level GPS (§3.3)
         lat = ds["lat"].values.astype(np.float64)
         lon = ds["lon"].values.astype(np.float64)
-        launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
-        launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
+        if "time" in ds:
+            launch_lat, launch_lon = _first_obs_position(
+                ds["time"].values, lat, lon)
+        else:
+            launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
+            launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
 
         profiles.append({
             "sonde_id": fname.replace(".nc", ""),
@@ -358,11 +405,15 @@ def read_activate(data_dir):
         if ts_match and ts_match.group(1) in ACTIVATE_UNCONDITIONED_RH:
             rh = None
 
-        # Fall back to first finite GPS position if header lat/lon missing
-        if not np.isfinite(launch_lat) and "Latitude" in col_idx:
-            launch_lat = _first_finite(_replace_missing(data[:, col_idx["Latitude"]], MISSING_ICT))
-        if not np.isfinite(launch_lon) and "Longitude" in col_idx:
-            launch_lon = _first_finite(_replace_missing(data[:, col_idx["Longitude"]], MISSING_ICT))
+        # Prefer earliest-time per-level GPS fix over header; fall back to
+        # header when the data column is missing.  See doc/regridding.tex §3.3.
+        if "Latitude" in col_idx and "Longitude" in col_idx and "Time_Start" in col_idx:
+            lat_col = _replace_missing(data[:, col_idx["Latitude"]], MISSING_ICT)
+            lon_col = _replace_missing(data[:, col_idx["Longitude"]], MISSING_ICT)
+            t_col = _replace_missing(data[:, col_idx["Time_Start"]], MISSING_ICT)
+            ll_lat, ll_lon = _first_obs_position(t_col, lat_col, lon_col)
+            if np.isfinite(ll_lat) and np.isfinite(ll_lon):
+                launch_lat, launch_lon = ll_lat, ll_lon
 
         # Observation time: Time_Start is UTC seconds from midnight.
         # Combine with launch date to get absolute datetime.
@@ -481,11 +532,16 @@ def _parse_eol(fpath):
     u = _replace_missing(data[:, 8], MISSING)             # m/s
     v = _replace_missing(data[:, 9], MISSING)             # m/s
 
-    # Fall back to first finite GPS position if header lat/lon missing
-    if not np.isfinite(launch_lat) and ncols > 15:
-        launch_lat = _first_finite(_replace_missing(data[:, 15], MISSING))
-    if not np.isfinite(launch_lon) and ncols > 14:
-        launch_lon = _first_finite(_replace_missing(data[:, 14], MISSING))
+    # Prefer earliest-time per-level GPS over header launch location.
+    # Column 0 is elapsed time from launch (can be slightly negative for
+    # the pre-release GPS fix), so use it as the anchor time.
+    if ncols > 15:
+        lat_col = _replace_missing(data[:, 15], MISSING)
+        lon_col = _replace_missing(data[:, 14], MISSING)
+        t_col = _replace_missing(data[:, 0], MISSING)
+        ll_lat, ll_lon = _first_obs_position(t_col, lat_col, lon_col)
+        if np.isfinite(ll_lat) and np.isfinite(ll_lon):
+            launch_lat, launch_lon = ll_lat, ll_lon
 
     # Observation time: hh (col 1), mm (col 2), ss (col 3) → absolute datetime.
     # These are clock times (UTC), not elapsed. Combine with launch date.
@@ -642,12 +698,16 @@ def _parse_frd(fpath):
     u = _replace_missing(data[:, 8], MISSING)               # m/s
     v = _replace_missing(data[:, 9], MISSING)               # m/s
 
-    # Fall back to first finite GPS position if header lat/lon missing
+    # Prefer earliest-time per-level GPS over FRD header launch location.
+    # Column 1 is elapsed time from launch in seconds.
     ncols = data.shape[1]
-    if not np.isfinite(launch_lat) and ncols > 17:
-        launch_lat = _first_finite(_replace_missing(data[:, 17], MISSING))
-    if not np.isfinite(launch_lon) and ncols > 18:
-        launch_lon = _first_finite(_replace_missing(data[:, 18], MISSING))
+    if ncols > 18:
+        lat_col = _replace_missing(data[:, 17], MISSING)
+        lon_col = _replace_missing(data[:, 18], MISSING)
+        t_col = _replace_missing(data[:, 1], MISSING)
+        ll_lat, ll_lon = _first_obs_position(t_col, lat_col, lon_col)
+        if np.isfinite(ll_lat) and np.isfinite(ll_lon):
+            launch_lat, launch_lon = ll_lat, ll_lon
 
     # Observation time: column 1 is elapsed seconds from launch
     obs_time = None
@@ -720,14 +780,19 @@ def read_haloac3(data_dir):
         u = ds["u"].values.astype(np.float64)
         v = ds["v"].values.astype(np.float64)
 
-        launch_lat = float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan))
-        launch_lon = float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan))
-
-        # Replace sentinel values (999, 99) with NaN
-        if launch_lat > 90 or launch_lat < -90:
-            launch_lat = np.nan
-        if launch_lon > 360 or launch_lon < -360:
-            launch_lon = np.nan
+        # Launch position: earliest-time per-level GPS (§3.3).  HALO-(AC)3
+        # stores its aircraft-centroid attribute that can be ~15 km off
+        # from the first GPS fix.
+        if "lat" in ds and "lon" in ds and "time" in ds:
+            launch_lat, launch_lon = _first_obs_position(
+                ds["time"].values, ds["lat"].values, ds["lon"].values)
+        else:
+            launch_lat = float(ds.attrs.get("aircraft_latitude_(deg_N)", np.nan))
+            launch_lon = float(ds.attrs.get("aircraft_longitude_(deg_E)", np.nan))
+            if launch_lat > 90 or launch_lat < -90:
+                launch_lat = np.nan
+            if launch_lon > 360 or launch_lon < -360:
+                launch_lon = np.nan
 
         profiles.append({
             "sonde_id": str(ds["sonde_id"].values),
@@ -880,13 +945,21 @@ def read_dynamo(data_dir):
         if match:
             launch_time = np.datetime64(datetime.strptime(match.group(1), "%Y%m%d_%H%M%S"))
 
-        # First valid lat/lon
+        # Launch position: earliest-time per-level GPS (§3.3)
         lat = ds["lat"].values.astype(np.float64)
         lon = ds["lon"].values.astype(np.float64)
         lat[lat <= -999] = np.nan
         lon[lon <= -999] = np.nan
-        launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
-        launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
+        # DYNAMO stores a (0, 0) sentinel for missing GPS in some rows
+        zero_sent = (lat == 0.0) & (lon == 0.0)
+        lat[zero_sent] = np.nan
+        lon[zero_sent] = np.nan
+        if "time" in ds:
+            launch_lat, launch_lon = _first_obs_position(
+                ds["time"].values, lat, lon)
+        else:
+            launch_lat = float(lat[np.isfinite(lat)][0]) if np.any(np.isfinite(lat)) else np.nan
+            launch_lon = float(lon[np.isfinite(lon)][0]) if np.any(np.isfinite(lon)) else np.nan
 
         # Observation time from Hour/Min/Sec UTC clock variables.
         # (time_offset metadata says "hour" but values are actually seconds;
