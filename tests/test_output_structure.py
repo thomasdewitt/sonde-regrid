@@ -83,7 +83,12 @@ def _is_synthetic(name):
 class TestDimensions:
     def test_has_two_dimensions(self, dataset):
         name, ds = dataset
-        assert set(ds.dims) == {"sounding_id", "altitude"}
+        # IGRA files carry a third `month` dim for the monthly climatology;
+        # every other dataset has just (sounding_id, altitude).
+        if _is_igra(name):
+            assert set(ds.dims) == {"sounding_id", "altitude", "month"}
+        else:
+            assert set(ds.dims) == {"sounding_id", "altitude"}
 
     def test_altitude_is_uniform(self, dataset):
         name, ds = dataset

@@ -71,8 +71,10 @@ def _first_obs_position(time, lat, lon):
     stream rather than from provider metadata, which for some datasets
     (notably HALO-(AC)3) can disagree with the first GPS fix by several km.
     Works for both time-ascending (EOL/FRD) and time-descending
-    (surface-first NetCDF like JOANNE, HALO-(AC)3) orderings.  Falls back
-    to (nan, nan) if no valid (time, lat, lon) triple exists.
+    (surface-first NetCDF like JOANNE, HALO-(AC)3) orderings.  Positive
+    out-of-range sentinels (e.g. lat = 999, lon = 99 in old hurricane
+    EOL files) are rejected along with negative sentinels and NaN.
+    Falls back to (nan, nan) if no valid (time, lat, lon) triple exists.
     """
     lat = np.asarray(lat, dtype=np.float64)
     lon = np.asarray(lon, dtype=np.float64)
@@ -82,7 +84,8 @@ def _first_obs_position(time, lat, lon):
                         time.astype("datetime64[ns]").astype(np.int64).astype(np.float64))
     else:
         t_f = np.asarray(time, dtype=np.float64)
-    valid = np.isfinite(t_f) & np.isfinite(lat) & np.isfinite(lon)
+    in_range = (np.abs(lat) <= 90.0) & (np.abs(lon) <= 360.0)
+    valid = np.isfinite(t_f) & np.isfinite(lat) & np.isfinite(lon) & in_range
     if not valid.any():
         return np.nan, np.nan
     k = np.where(valid)[0][np.argmin(t_f[valid])]
@@ -542,6 +545,11 @@ def _parse_eol(fpath):
         ll_lat, ll_lon = _first_obs_position(t_col, lat_col, lon_col)
         if np.isfinite(ll_lat) and np.isfinite(ll_lon):
             launch_lat, launch_lon = ll_lat, ll_lon
+    # Final sanity: reject positive-sentinel header values (e.g. 999/99)
+    if not (np.isfinite(launch_lat) and abs(launch_lat) <= 90):
+        launch_lat = np.nan
+    if not (np.isfinite(launch_lon) and abs(launch_lon) <= 360):
+        launch_lon = np.nan
 
     # Observation time: hh (col 1), mm (col 2), ss (col 3) → absolute datetime.
     # These are clock times (UTC), not elapsed. Combine with launch date.
@@ -708,6 +716,11 @@ def _parse_frd(fpath):
         ll_lat, ll_lon = _first_obs_position(t_col, lat_col, lon_col)
         if np.isfinite(ll_lat) and np.isfinite(ll_lon):
             launch_lat, launch_lon = ll_lat, ll_lon
+    # Final sanity: reject positive-sentinel header values (e.g. 999/99)
+    if not (np.isfinite(launch_lat) and abs(launch_lat) <= 90):
+        launch_lat = np.nan
+    if not (np.isfinite(launch_lon) and abs(launch_lon) <= 360):
+        launch_lon = np.nan
 
     # Observation time: column 1 is elapsed seconds from launch
     obs_time = None
