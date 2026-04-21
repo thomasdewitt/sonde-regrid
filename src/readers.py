@@ -1130,9 +1130,9 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
                     continue
 
             # IGRA HOUR field: 0-23 or 99 (missing). Not guaranteed synoptic —
-            # off-synoptic ascents are valid IGRA records. Used here as the
-            # rollover anchor for RELTIME and as a fallback when RELTIME is
-            # missing, not as a nominal-synoptic label.
+            # off-synoptic ascents are valid IGRA records. Used here as a
+            # fallback when RELTIME is missing, not as a nominal-synoptic
+            # label.
             header_time = None
             if 0 <= hour <= 23:
                 try:
@@ -1140,11 +1140,18 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
                 except ValueError:
                     pass
 
+            # Rollover anchor: only the synoptic HOUR values trigger the
+            # pre-midnight-launch shift below. That convention is a
+            # synoptic-labeling artifact (HR=00 assigned to a balloon released
+            # ~23:xx the night before), not a documented off-synoptic pattern.
+            synoptic_anchor = header_time if hour in (0, 6, 12, 18) else None
+
             # Actual launch time from RELTIME (HHMM format, 9999=missing).
-            # RELTIME is anchored to the header date, but for early-UTC HOUR
+            # RELTIME is anchored to the header date; for synoptic HOUR
             # soundings the launch often occurs the previous evening (e.g.
             # RELTIME=2312 on a Jan 2 00Z header means Dec 31 23:12). Fix: if
-            # RELTIME places launch_time >12h after header_time, shift by -1 day.
+            # RELTIME places launch_time >12h after the synoptic anchor,
+            # shift by -1 day.
             launch_time = None
             try:
                 reltime_int = int(reltime_raw)
@@ -1154,8 +1161,8 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
                     if 0 <= rel_h <= 23 and 0 <= rel_m <= 59:
                         launch_time = np.datetime64(
                             datetime(year_val, month, day, rel_h, rel_m))
-                        if header_time is not None:
-                            diff = launch_time - header_time
+                        if synoptic_anchor is not None:
+                            diff = launch_time - synoptic_anchor
                             if diff > np.timedelta64(12, "h"):
                                 launch_time -= np.timedelta64(1, "D")
             except (ValueError, IndexError):
