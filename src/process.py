@@ -505,9 +505,10 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
     out["launch_time"].attrs = {
         "long_name": "date and time of sounding launch",
         "comment": "For IGRA: parsed from RELTIME field (actual release time in HHMM). "
-                   "When RELTIME is missing (9999) or invalid, falls back to the nominal "
-                   "synoptic hour. If RELTIME places the launch >12h after the nominal "
-                   "time, the date is shifted back one day (pre-midnight launches for 00Z).",
+                   "When RELTIME is missing (9999) or invalid, falls back to the header "
+                   "HOUR field (which may be any integer hour, not only the synoptic "
+                   "hours). If RELTIME places the launch >12h after the header hour, the "
+                   "date is shifted back one day (pre-midnight launches).",
     }
     out["observation_time"].attrs = {
         "long_name": "observation time at each altitude level",
@@ -516,9 +517,12 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
     }
     if "nominal_time" in out:
         out["nominal_time"].attrs = {
-            "long_name": "nominal synoptic time (0, 6, 12, or 18 UTC)",
-            "comment": "The synoptic hour from the IGRA header (HR field). "
-                       "Differs from launch_time, which is the actual release time.",
+            "long_name": "launch_time rounded to the nearest hour",
+            "comment": "For IGRA: defined as launch_time rounded to the nearest "
+                       "hour (not the raw HOUR header field). IGRA's format spec "
+                       "notes that the relationship between HOUR and release time "
+                       "varies by data provider, so we derive a provider-independent "
+                       "nominal from the physical release time.",
         }
     if "launch_x" in out:
         out["launch_x"].attrs = {

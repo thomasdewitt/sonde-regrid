@@ -1129,19 +1129,22 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
                     i += 1 + numlev
                     continue
 
-            # Nominal synoptic time (0, 6, 12, 18 UTC)
-            nominal_time = None
-            if hour in (0, 6, 12, 18):
+            # IGRA HOUR field: 0-23 or 99 (missing). Not guaranteed synoptic —
+            # off-synoptic ascents are valid IGRA records. Used here as the
+            # rollover anchor for RELTIME and as a fallback when RELTIME is
+            # missing, not as a nominal-synoptic label.
+            header_time = None
+            if 0 <= hour <= 23:
                 try:
-                    nominal_time = np.datetime64(datetime(year_val, month, day, hour))
+                    header_time = np.datetime64(datetime(year_val, month, day, hour))
                 except ValueError:
                     pass
 
-            # Actual launch time from RELTIME (HHMM format, 9999=missing)
-            # RELTIME is anchored to the header date, but for 00Z soundings
-            # the launch often occurs the previous evening (e.g., RELTIME=2312
-            # on a Jan 2 00Z header means Dec 31 23:12, not Jan 2 23:12).
-            # Fix: if RELTIME places launch_time >12h from nominal, shift by -1 day.
+            # Actual launch time from RELTIME (HHMM format, 9999=missing).
+            # RELTIME is anchored to the header date, but for early-UTC HOUR
+            # soundings the launch often occurs the previous evening (e.g.
+            # RELTIME=2312 on a Jan 2 00Z header means Dec 31 23:12). Fix: if
+            # RELTIME places launch_time >12h after header_time, shift by -1 day.
             launch_time = None
             try:
                 reltime_int = int(reltime_raw)
@@ -1151,16 +1154,24 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
                     if 0 <= rel_h <= 23 and 0 <= rel_m <= 59:
                         launch_time = np.datetime64(
                             datetime(year_val, month, day, rel_h, rel_m))
-                        if nominal_time is not None:
-                            diff = launch_time - nominal_time
+                        if header_time is not None:
+                            diff = launch_time - header_time
                             if diff > np.timedelta64(12, "h"):
                                 launch_time -= np.timedelta64(1, "D")
             except (ValueError, IndexError):
                 pass
 
-            # Fall back to nominal time if RELTIME is missing
+            # Fall back to the header hour if RELTIME is missing
             if launch_time is None:
-                launch_time = nominal_time
+                launch_time = header_time
+
+            # nominal_time: launch_time rounded to the nearest hour. The IGRA
+            # format doc states HOUR's relationship to release time varies by
+            # provider, so we derive nominal from the physical release instead.
+            nominal_time = None
+            if launch_time is not None:
+                nominal_time = (launch_time + np.timedelta64(30, "m")).astype(
+                    "datetime64[h]").astype("datetime64[ns]")
 
             # Parse data levels
             altitudes = []
