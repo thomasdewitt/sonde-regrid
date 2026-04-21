@@ -527,15 +527,6 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
                        "observation_time when available; estimated_observation_time "
                        "is a best-effort fallback for per-level time-based work.",
         }
-    if "nominal_time" in out:
-        out["nominal_time"].attrs = {
-            "long_name": "launch_time rounded to the nearest hour",
-            "comment": "For IGRA: defined as launch_time rounded to the nearest "
-                       "hour (not the raw HOUR header field). IGRA's format spec "
-                       "notes that the relationship between HOUR and release time "
-                       "varies by data provider, so we derive a provider-independent "
-                       "nominal from the physical release time.",
-        }
     if "launch_x" in out:
         out["launch_x"].attrs = {
             "units": "m", "long_name": "eastward launch coordinate in LES domain",
@@ -640,9 +631,6 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
     launch_times = np.empty(n_prof, dtype="datetime64[ns]")
     launch_lats = np.full(n_prof, np.nan)
     launch_lons = np.full(n_prof, np.nan)
-    has_nominal = any("nominal_time" in p for p in profiles)
-    if has_nominal:
-        nominal_times = np.empty(n_prof, dtype="datetime64[ns]")
     has_xy = any(("launch_x" in p) and ("launch_y" in p) for p in profiles)
     if has_xy:
         launch_xs = np.full(n_prof, np.nan)
@@ -661,8 +649,6 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
         launch_times[i] = prof.get("launch_time") or np.datetime64("NaT")
         launch_lats[i] = prof.get("launch_lat", np.nan)
         launch_lons[i] = prof.get("launch_lon", np.nan)
-        if has_nominal:
-            nominal_times[i] = prof.get("nominal_time") or np.datetime64("NaT")
         if has_xy:
             launch_xs[i] = prof.get("launch_x", np.nan)
             launch_ys[i] = prof.get("launch_y", np.nan)
@@ -707,8 +693,6 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
         "launch_lat": ("sounding_id", launch_lats),
         "launch_lon": ("sounding_id", launch_lons),
     }
-    if has_nominal:
-        coords["nominal_time"] = ("sounding_id", nominal_times)
     if has_xy:
         coords["launch_x"] = ("sounding_id", launch_xs)
         coords["launch_y"] = ("sounding_id", launch_ys)

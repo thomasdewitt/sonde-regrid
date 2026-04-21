@@ -1172,14 +1172,6 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
             if launch_time is None:
                 launch_time = header_time
 
-            # nominal_time: launch_time rounded to the nearest hour. The IGRA
-            # format doc states HOUR's relationship to release time varies by
-            # provider, so we derive nominal from the physical release instead.
-            nominal_time = None
-            if launch_time is not None:
-                nominal_time = (launch_time + np.timedelta64(30, "m")).astype(
-                    "datetime64[h]").astype("datetime64[ns]")
-
             # Parse data levels
             altitudes = []
             pressures = []
@@ -1245,7 +1237,6 @@ def read_igra(data_dir, year=None, year_min=2000, year_max=2025, subsample=1,
             profiles.append({
                 "sonde_id": f"{station_id}_{year_val:04d}{month:02d}{day:02d}{hour:02d}",
                 "launch_time": launch_time,
-                "nominal_time": nominal_time,
                 "launch_lat": launch_lat,
                 "launch_lon": launch_lon,
                 "station_id": station_id,
