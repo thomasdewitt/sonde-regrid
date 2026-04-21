@@ -329,11 +329,11 @@ The drift integration described in \S\ref{sec:drift} is checked against the per-
 
 \begin{table}[h]
 \centering
-\caption{Drift validation statistics.  ``Screened'' is the number of profiles whose integrated drift disagreed with native GPS by more than $\SI{2}{km}$ at the lowest altitude bin with a valid integration (\S\ref{sec:drift}) and whose \texttt{x\_offset}, \texttt{y\_offset}, \texttt{lat}, \texttt{lon} have therefore been set to missing.  Maximum and RMS residual between the integrated and native drift vectors are computed over the remaining profiles; launch-residual is the distance between the stored \texttt{launch\_lat}/\texttt{launch\_lon} and the earliest-time per-level GPS fix and is zero by construction of \S\ref{sec:launch}.}
+\caption{Drift validation statistics.  ``Flagged'' is the number of profiles whose integrated drift disagreed with native GPS by more than $\SI{2}{km}$ at the lowest altitude bin with a valid integration (\S\ref{sec:drift}) and whose \texttt{x\_offset}, \texttt{y\_offset}, \texttt{lat}, \texttt{lon} have therefore been set to missing (the rest of the regridded and diagnosed fields are retained).  Maximum and RMS residual between the integrated and native drift vectors are computed over the remaining profiles; launch-residual is the distance between the stored \texttt{launch\_lat}/\texttt{launch\_lon} and the earliest-time per-level GPS fix and is zero by construction of \S\ref{sec:launch}.}
 \label{tab:drift-validation}
 \begin{tabular}{lrrrrr}
 \toprule
-Dataset           & Profiles  & Screened       & Max drift [m]   & RMS drift [m]   & Launch residual [m] \\
+Dataset           & Profiles  & Flagged        & Max drift [m]   & RMS drift [m]   & Launch residual [m] \\
 \midrule
 JOANNE            & 1068      & 0              & 234             & 126             & 0 \\
 BEACH             & 976       & 0              & 284             & 134             & 0 \\
@@ -351,7 +351,9 @@ HALO--(AC)\textsuperscript{3} & 463 & 0          & 702             & 214        
 \end{tabular}
 \end{table}
 
-The residuals that remain after screening are dominated by small mismatches between $\int u\,dt$ and the sonde's own GPS track that are inherent to the source data, not introduced by the regridding.  The effect is most visible in SHOUT and HS3, where per-profile RMS residuals of $\sim\SI{0.7}{km}$ and maxima exceeding $\SI{1}{km}$ are normal.  JOANNE, BEACH, and DYNAMO are notably cleaner, with maximum errors under $\SI{300}{m}$.  The launch residual of zero everywhere is a consequence of the launch convention in \S\ref{sec:launch}, not an independent check on it.
+The residuals that remain after flagging are dominated by small mismatches between $\int u\,dt$ and the sonde's own GPS track that are inherent to the source data, not introduced by the regridding.  The effect is most visible in SHOUT and HS3, where per-profile RMS residuals of $\sim\SI{0.7}{km}$ and maxima exceeding $\SI{1}{km}$ are normal.  JOANNE, BEACH, and DYNAMO are notably cleaner, with maximum errors under $\SI{300}{m}$.  The launch residual of zero everywhere is a consequence of the launch convention in \S\ref{sec:launch}, not an independent check on it.
+
+IGRA radiosondes and the synthetic SAM and multifractal datasets are not included in this validation because their source files do not carry per-level GPS coordinates against which the integrated drift could be compared.  The drift fields \texttt{x\_offset}, \texttt{y\_offset}, and (for IGRA) \texttt{lat}/\texttt{lon} are still computed for them from the gridded $u$ and $v$ as described in \S\ref{sec:drift}; the flagging step in \texttt{src/screen\_drift.py} is simply a no-op for these datasets.
 
 \bibliographystyle{apalike}
 \bibliography{references}
