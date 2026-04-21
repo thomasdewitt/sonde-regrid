@@ -55,8 +55,34 @@ IGRA_YEAR_MIN = 2000
 IGRA_YEAR_MAX = 2025
 IGRA_SUBSAMPLE = 10       # keep every Nth day (1 = all, 10 = DOY 1, 11, 21, ...)
 
+# Piecewise-constant IGRA ascent model for estimated_observation_time.
+# Calibrated from the 217k profiles with valid ETIME (median local ascent rate
+# ~5.0 m/s below 20 km; rising to 5.3-6.7 m/s in the 20-30 km band). The
+# simple two-zone model matches true cumulative time within ~60 s at 30 km.
+IGRA_ASCENT_BREAK_M = 20000.0
+IGRA_ASCENT_RATE_LOW = 5.0   # m/s, at or below IGRA_ASCENT_BREAK_M
+IGRA_ASCENT_RATE_HIGH = 6.0  # m/s, above IGRA_ASCENT_BREAK_M
+
 DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE",
                    "x_offset", "y_offset", "lat", "lon"]
+
+
+def _igra_ascent_elapsed_s(z_anchor, altitudes):
+    """Cumulative ascent time (s) from z_anchor (m) to each altitude in
+    ``altitudes`` (m) under the piecewise-constant IGRA ascent model.
+    Returns zero for altitudes at or below ``z_anchor``.
+    """
+    b = IGRA_ASCENT_BREAK_M
+    r_lo, r_hi = IGRA_ASCENT_RATE_LOW, IGRA_ASCENT_RATE_HIGH
+    # Altitude traversed in the below-break zone.
+    zone_low_start = min(z_anchor, b)
+    zone_low_end = np.minimum(altitudes, b)
+    d_low = np.maximum(0.0, zone_low_end - zone_low_start)
+    # Altitude traversed in the above-break zone.
+    zone_high_start = max(z_anchor, b)
+    zone_high_end = np.maximum(altitudes, b)
+    d_high = np.maximum(0.0, zone_high_end - zone_high_start)
+    return d_low / r_lo + d_high / r_hi
 
 VARIABLE_ATTRS = {
     "u":       {"units": "m s-1",   "long_name": "zonal wind",
@@ -517,15 +543,16 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
     }
     if "estimated_observation_time" in out:
         out["estimated_observation_time"].attrs = {
-            "long_name": "observation time with missing values filled at 5 m/s",
+            "long_name": "observation time with missing values filled by piecewise ascent model",
             "comment": "Equals observation_time where that coordinate is finite. "
                        "Where observation_time is missing (IGRA profiles lacking "
                        "ETIME records — about 85% of profiles in the current "
-                       "subsample), synthesised as launch_time + (altitude - "
-                       "station_elevation) / (5 m/s). Station elevation is taken "
-                       "from the IGRA metadata catalog. Use observation_time when "
-                       "available; estimated_observation_time is a best-effort "
-                       "fallback for per-level time-based work.",
+                       "subsample), synthesised as launch_time plus a piecewise-"
+                       "constant ascent model anchored at the station elevation: "
+                       "5.0 m/s below 20 km and 6.0 m/s above, calibrated from the "
+                       "~217k profiles with valid ETIME. Use observation_time "
+                       "when available; estimated_observation_time is a best-"
+                       "effort fallback for per-level time-based work.",
         }
     if "launch_x" in out:
         out["launch_x"].attrs = {
@@ -665,13 +692,13 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
     # Estimated observation time (IGRA only). For IGRA, ~85% of profiles have
     # no ETIME field, so observation_time is NaT at every bin. We provide a
     # best-effort alternative: equal to observation_time where that is finite,
-    # otherwise launch_time + (altitude - z_anchor) / 5 m/s. z_anchor is the
+    # otherwise launch_time + elapsed_ascent_time(z_anchor, altitude) using
+    # the piecewise-constant IGRA_ASCENT_RATE_LOW/HIGH model. z_anchor is the
     # station elevation when supplied (the physical release height), else the
     # lowest bin in the profile containing any primary data.
     est_obs_time_arr = None
     if name.startswith("igra"):
         est_obs_time_arr = obs_time_arr.copy()
-        ASCENT_MS = 5.0
         masks = [np.isfinite(data_arrays[v])
                  for v in ("u", "v", "p", "T", "RH") if v in data_arrays]
         data_mask = np.any(masks, axis=0) if masks else np.zeros_like(
@@ -687,8 +714,8 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
                 z_anchor = float(surface_altitude)
             else:
                 z_anchor = altitude[int(np.argmax(mi))]
-            dt_ns = ((altitude - z_anchor) / ASCENT_MS * 1e9).astype(
-                "timedelta64[ns]")
+            elapsed_s = _igra_ascent_elapsed_s(z_anchor, altitude)
+            dt_ns = (elapsed_s * 1e9).astype("timedelta64[ns]")
             est = lt + dt_ns
             fill = mi & np.isnat(obs_time_arr[i, :])
             est_obs_time_arr[i, fill] = est[fill]
