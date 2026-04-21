@@ -1269,6 +1269,12 @@ def _read_sam_file(path, sonde_prefix):
     QV = ds["QV"].values         # g/kg
     P = ds["P"].values           # Pa
     launch_seconds = ds["launch_time"].values.astype(np.float64)
+    # LES-domain launch position (periodic x/y in metres).  Optional for
+    # older SAM files; if absent, leave as NaN.
+    launch_x = ds["launch_x"].values.astype(np.float64) if "launch_x" in ds \
+        else np.full(U.shape[0], np.nan)
+    launch_y = ds["launch_y"].values.astype(np.float64) if "launch_y" in ds \
+        else np.full(U.shape[0], np.nan)
     ds.close()
 
     n = U.shape[0]
@@ -1281,6 +1287,8 @@ def _read_sam_file(path, sonde_prefix):
             "launch_time": launch_times[i],
             "launch_lat": np.nan,
             "launch_lon": np.nan,
+            "launch_x": float(launch_x[i]),
+            "launch_y": float(launch_y[i]),
             "altitude": altitude,
             "u": U[i, :].astype(np.float64),
             "v": V[i, :].astype(np.float64),

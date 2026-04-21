@@ -173,7 +173,8 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None
 
         if "u" in gridded and "v" in gridded:
             x_off, y_off, lat, lon = integrate_drift(
-                gridded_time, gridded["u"], gridded["v"], launch_lat, launch_lon,
+                z_centers, gridded_time, gridded["u"], gridded["v"],
+                launch_lat, launch_lon,
             )
             ds["x_offset"] = ("altitude", x_off)
             ds["y_offset"] = ("altitude", y_off)

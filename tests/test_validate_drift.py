@@ -232,6 +232,9 @@ def _native_eol(path):
     lon = data[:, 14].astype(np.float64) if ncols > 14 else np.full_like(alt, np.nan)
     lat[lat <= MISSING] = np.nan
     lon[lon <= MISSING] = np.nan
+    # Positive-sentinel values (e.g. 99, 999) also appear in older files
+    lat[np.abs(lat) > 90.0] = np.nan
+    lon[np.abs(lon) > 360.0] = np.nan
     time = data[:, 0].astype(np.float64)
     time[time <= MISSING] = np.nan
     return alt, lat, lon, time
@@ -271,6 +274,8 @@ def _native_frd(path):
     lon = data[:, 18].astype(np.float64) if ncols > 18 else np.full_like(alt, np.nan)
     lat[lat <= MISSING] = np.nan
     lon[lon <= MISSING] = np.nan
+    lat[np.abs(lat) > 90.0] = np.nan
+    lon[np.abs(lon) > 360.0] = np.nan
     time = data[:, 1].astype(np.float64) if ncols > 1 else np.arange(len(alt), dtype=np.float64)
     time[time <= MISSING] = np.nan
     return alt, lat, lon, time

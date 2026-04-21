@@ -73,7 +73,10 @@ def _native_summary(sonde_id, native_lookup, max_deg_from_anchor=3.0):
     idx = np.where(valid & not_outlier)[0]
     if len(idx) == 0:
         return None
-    k_surface = idx[np.argmax(time_n[idx])]
+    # Spec (§3.1): compare against the native GPS drift at the lowest-altitude
+    # bin with valid GPS.  This also guards against sentinel rows at extreme
+    # later times that passed the anchor-radius filter.
+    k_surface = idx[np.argmin(alt_n[idx])]
     return (lat_a, lon_a,
             float(lat_n[k_surface]), float(lon_n[k_surface]),
             float(alt_n[k_surface]))

@@ -19,7 +19,7 @@ def _time_to_seconds(obs_time):
     return out
 
 
-def integrate_drift(obs_time, u, v, launch_lat, launch_lon,
+def integrate_drift(z, obs_time, u, v, launch_lat, launch_lon,
                     max_gap_m=MAX_GAP_M, R_earth=R_EARTH):
     """Integrate horizontal drift from gridded winds and observation times.
 
@@ -27,12 +27,15 @@ def integrate_drift(obs_time, u, v, launch_lat, launch_lon,
     treated as if the sonde starts at the launch position at the earliest
     time, and marched forward in time using trapezoidal integration on the
     mean of adjacent bins' winds.  Missing wind values are filled by
-    carrying forward the last valid value; once the accumulated drift in a
-    single contiguous gap exceeds max_gap_m, the rest of the track (in
-    time order) is set to NaN.
+    carrying forward the last valid value; once a contiguous wind-gap
+    spans more than ``max_gap_m`` of altitude (100 dropsonde bins / 10
+    IGRA bins at the default 1 km threshold), the remaining bins are
+    marked missing.
 
     Parameters
     ----------
+    z : ndarray, shape (N,)
+        Cell-center altitudes [m], aligned with the other per-bin arrays.
     obs_time : ndarray of datetime64[ns], shape (N,)
         Observation time at each altitude bin (NaT if missing).
     u, v : ndarray of float, shape (N,)
@@ -41,8 +44,8 @@ def integrate_drift(obs_time, u, v, launch_lat, launch_lon,
         Launch position [degrees].  If NaN, lat/lon outputs are NaN but
         x_offset/y_offset are still computed.
     max_gap_m : float
-        Maximum horizontal distance that may be accumulated during a single
-        contiguous wind-gap before the rest of the track is NaN-flagged.
+        Maximum altitude extent of a contiguous wind-gap before the
+        remainder of the track is NaN-flagged.
     R_earth : float
         Mean Earth radius [m] for the meters-to-degrees conversion.
 
@@ -55,6 +58,7 @@ def integrate_drift(obs_time, u, v, launch_lat, launch_lon,
         coordinates are missing.
     """
     n = len(u)
+    z = np.asarray(z, dtype=np.float64)
     x_offset = np.full(n, np.nan)
     y_offset = np.full(n, np.nan)
     lat = np.full(n, np.nan)
@@ -136,11 +140,16 @@ def integrate_drift(obs_time, u, v, launch_lat, launch_lon,
         x_ord[i] = last_x + dx
         y_ord[i] = last_y + dy
 
-        # Gap budget tracks drift accumulated using a carried-forward wind
+        # Gap budget: vertical extent of a contiguous run of bins whose
+        # wind relies on a carried-forward value.  The step is extrapolated
+        # if either the prev or the curr bin's wind was missing; under the
+        # walk, the effective gap length is |z_curr - z_prev| accumulated
+        # over consecutive extrapolated steps.  Once gap_budget exceeds
+        # max_gap_m, all remaining bins (in time order) are NaN-flagged.
         step_extrapolated = not (np.isfinite(u_curr_raw) and np.isfinite(v_curr_raw)
                                   and np.isfinite(u_prev_raw) and np.isfinite(v_prev_raw))
         if step_extrapolated:
-            gap_budget += np.hypot(dx, dy)
+            gap_budget += abs(z[k_curr] - z[k_prev])
             if gap_budget > max_gap_m:
                 aborted = True
         else:

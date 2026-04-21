@@ -520,6 +520,20 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
             "comment": "The synoptic hour from the IGRA header (HR field). "
                        "Differs from launch_time, which is the actual release time.",
         }
+    if "launch_x" in out:
+        out["launch_x"].attrs = {
+            "units": "m", "long_name": "eastward launch coordinate in LES domain",
+            "comment": "Periodic horizontal x-coordinate of the simulated sonde "
+                       "launch in the LES domain. Not georeferenced; pairs with "
+                       "launch_y.",
+        }
+    if "launch_y" in out:
+        out["launch_y"].attrs = {
+            "units": "m", "long_name": "northward launch coordinate in LES domain",
+            "comment": "Periodic horizontal y-coordinate of the simulated sonde "
+                       "launch in the LES domain. Not georeferenced; pairs with "
+                       "launch_x.",
+        }
     for var, attrs in VARIABLE_ATTRS.items():
         if var in out:
             out[var].attrs = attrs
@@ -613,6 +627,10 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
     has_nominal = any("nominal_time" in p for p in profiles)
     if has_nominal:
         nominal_times = np.empty(n_prof, dtype="datetime64[ns]")
+    has_xy = any(("launch_x" in p) and ("launch_y" in p) for p in profiles)
+    if has_xy:
+        launch_xs = np.full(n_prof, np.nan)
+        launch_ys = np.full(n_prof, np.nan)
 
     t0 = time.time()
     for i, prof in enumerate(profiles):
@@ -629,6 +647,9 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
         launch_lons[i] = prof.get("launch_lon", np.nan)
         if has_nominal:
             nominal_times[i] = prof.get("nominal_time") or np.datetime64("NaT")
+        if has_xy:
+            launch_xs[i] = prof.get("launch_x", np.nan)
+            launch_ys[i] = prof.get("launch_y", np.nan)
 
     t_regrid = time.time() - t0
     print(f"  Regridded {n_prof} profiles in {t_regrid:.1f}s")
@@ -643,6 +664,9 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
     }
     if has_nominal:
         coords["nominal_time"] = ("sounding_id", nominal_times)
+    if has_xy:
+        coords["launch_x"] = ("sounding_id", launch_xs)
+        coords["launch_y"] = ("sounding_id", launch_ys)
     out = xr.Dataset(
         {var: (dims, data_arrays[var]) for var in DATA_VARIABLES},
         coords=coords,

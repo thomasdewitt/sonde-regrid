@@ -253,7 +253,7 @@ where $\phi_0$ and $\lambda_0$ are the launch latitude and longitude, respective
 
 For every dataset whose source files report per-level GPS coordinates, the stored \texttt{launch\_lat}/\texttt{launch\_lon} is taken from the earliest-time per-level GPS fix rather than from provider metadata.  This is a deliberate departure from the convention of some providers.  The raison d'\^etre is that several archives populate a launch-position attribute from an aircraft centroid or mission plan that does not exactly match the sonde's own GPS stream.  For HALO--(AC)\textsuperscript{3} we observed offsets of up to ${\sim}\SI{15}{km}$ between the \texttt{aircraft\_latitude\_(deg\_N)} attribute and the first per-level GPS fix; offsets of several hundred metres are routine for other campaigns.  Using the sonde's own GPS removes this dependency on provider metadata, and ensures that the launch position is consistent with the horizontal drift track integrated in \S\ref{sec:drift}.
 
-For IGRA radiosondes, per-level GPS is unavailable and the launch position is the station location from the IGRA metadata catalog.  For synthetic datasets (SAM LES, multifractals), \texttt{launch\_lat}/\texttt{launch\_lon} remain missing.
+For IGRA radiosondes, per-level GPS is unavailable and the launch position is the station location from the IGRA metadata catalog.  For the synthetic SAM datasets the simulation domain is periodic and not georeferenced, so \texttt{launch\_lat}/\texttt{launch\_lon} are missing; a launch position is still recorded as \texttt{launch\_x}/\texttt{launch\_y} in LES-domain metres.  The multifractal datasets have no spatial context, so both forms of launch position are missing.
 
 \subsection{Climatological wind profiles} \label{sec:clim}
 
