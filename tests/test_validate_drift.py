@@ -88,8 +88,9 @@ def _native_joanne(sonde_id):
 
 def _native_beach(sonde_id):
     import glob
+    # BEACH Zarr directories are named PERCUSION_{sonde_id}_Level_2.zarr
     matches = glob.glob(os.path.join(DATA_DIR, "beach", "Level_2", "*",
-                                       f"{sonde_id}.zarr"))
+                                       f"*{sonde_id}*.zarr"))
     if not matches:
         return None
     try:

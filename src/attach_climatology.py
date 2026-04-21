@@ -193,7 +193,11 @@ def main(argv):
 
     print("\nupdating global attributes...")
     for path in paths:
-        _update_global_attr(path)
+        try:
+            _update_global_attr(path)
+        except Exception as e:
+            print(f"  {path}: FAILED — {e}")
+            continue
 
     print("done.")
 

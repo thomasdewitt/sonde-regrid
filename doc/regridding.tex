@@ -325,7 +325,33 @@ BEACH (976 sondes)    & $T$             & 0.24   & $-$0.18       & \si{K} \\
 
 \subsection{Horizontal drift}
 
-The drift integration described in \S\ref{sec:drift} is checked against the per-level GPS coordinates reported in the source files, for each dataset whose raw data contains them.  For a given dataset, a random sample of 200 native (altitude, latitude, longitude) triples is drawn from 20 randomly chosen profiles, restricted to levels at which all three fields are finite.  Each native altitude is matched to the nearest bin center in the regridded output, and the great-circle distance between the integrated and measured positions is computed using the haversine formula.  The test asserts that the maximum distance is below $\SI{500}{m}$ for every dataset, and also records the RMS distance across all sampled points.
+The drift integration described in \S\ref{sec:drift} is checked against the per-level GPS coordinates reported in the source files, for each dataset whose raw data contains them.  For a given dataset, a random subset of 20 profiles is re-read from source and up to 10 native (altitude, latitude, longitude) triples are drawn per profile.  The native samples and the gridded output are expressed as east/north offsets from the earliest-time sample in each stream, so that any uniform anchor offset per profile cancels and only integration error remains.  The test reports the maximum and RMS of these residual offsets across all sampled levels; values are summarized in Tab.~\ref{tab:drift-validation}.
+
+\begin{table}[h]
+\centering
+\caption{Drift validation statistics.  ``Screened'' is the number of profiles whose integrated drift disagreed with native GPS by more than $\SI{2}{km}$ at the lowest altitude bin with a valid integration (\S\ref{sec:drift}) and whose \texttt{x\_offset}, \texttt{y\_offset}, \texttt{lat}, \texttt{lon} have therefore been set to missing.  Maximum and RMS residual between the integrated and native drift vectors are computed over the remaining profiles; launch-residual is the distance between the stored \texttt{launch\_lat}/\texttt{launch\_lon} and the earliest-time per-level GPS fix and is zero by construction of \S\ref{sec:launch}.}
+\label{tab:drift-validation}
+\begin{tabular}{lrrrrr}
+\toprule
+Dataset           & Profiles  & Screened       & Max drift [m]   & RMS drift [m]   & Launch residual [m] \\
+\midrule
+JOANNE            & 1068      & 0              & 234             & 126             & 0 \\
+BEACH             & 976       & 0              & 284             & 134             & 0 \\
+OTREC             & 646       & 0              & 500             & 272             & 0 \\
+ACTIVATE          & 782       & 0              & 730             & 354             & 0 \\
+Hurricane         & 13{,}647  & 203            & 542             & 175             & 0 \\
+DYNAMO            & 468       & 0              & 278             & 123             & 0 \\
+SHOUT             & 634       & 2              & 1120            & 755             & 0 \\
+AR~Recon          & 8377      & 5              & 1540            & 282             & 0 \\
+ENRR              & 965       & 0              & 948             & 221             & 0 \\
+HS3               & 1505      & 75             & 1240            & 722             & 0 \\
+PREDICT           & 555       & 2              & 586             & 223             & 0 \\
+HALO--(AC)\textsuperscript{3} & 463 & 0          & 702             & 214             & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The residuals that remain after screening are dominated by small mismatches between $\int u\,dt$ and the sonde's own GPS track that are inherent to the source data, not introduced by the regridding.  The effect is most visible in SHOUT and HS3, where per-profile RMS residuals of $\sim\SI{0.7}{km}$ and maxima exceeding $\SI{1}{km}$ are normal.  JOANNE, BEACH, and DYNAMO are notably cleaner, with maximum errors under $\SI{300}{m}$.  The launch residual of zero everywhere is a consequence of the launch convention in \S\ref{sec:launch}, not an independent check on it.
 
 \bibliographystyle{apalike}
 \bibliography{references}

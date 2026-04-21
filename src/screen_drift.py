@@ -83,7 +83,15 @@ def _native_summary(sonde_id, native_lookup, max_deg_from_anchor=3.0):
 
 
 def screen_dataset(path, native_lookup, threshold_m):
-    """Screen one NetCDF; return (n_total, n_screened, list_of_sonde_ids)."""
+    """Screen one NetCDF; return (n_total, n_screened, list_of_sonde_ids).
+
+    The comparison is performed at the lowest altitude where the grid
+    carries a valid drift (``x_offset`` finite) — that is the surface for
+    intact profiles, or the gap-abort altitude for profiles whose
+    integration was truncated by the gap rule.  The native drift is
+    measured at the native sample whose altitude is closest to that
+    grid altitude.
+    """
     ds = xr.open_dataset(path)
     z_grid = ds["altitude"].values
     x_off = ds["x_offset"].values
@@ -93,17 +101,36 @@ def screen_dataset(path, native_lookup, threshold_m):
 
     bad = []
     for i, sid in enumerate(sonde_ids):
+        # Lowest-altitude grid bin with valid integrated drift
+        finite_grid = np.where(np.isfinite(x_off[i]) & np.isfinite(y_off[i]))[0]
+        if len(finite_grid) == 0:
+            continue
+        nb = int(finite_grid[0])
+        xg = x_off[i, nb]
+        yg = y_off[i, nb]
+        z_target = z_grid[nb]
+
         summary = _native_summary(sid, native_lookup)
         if summary is None:
             continue
-        lat_a, lon_a, lat_s, lon_s, alt_s = summary
-        # Grid surface drift = at the bin nearest the native surface altitude
-        nb = int(np.argmin(np.abs(z_grid - alt_s)))
-        xg = x_off[i, nb]
-        yg = y_off[i, nb]
-        if not (np.isfinite(xg) and np.isfinite(yg)):
+        lat_a, lon_a, _lat_s_unused, _lon_s_unused, _alt_s_unused = summary
+
+        # Native lat/lon at the altitude closest to z_target
+        native = native_lookup(sid)
+        if native is None or len(native) != 4:
             continue
-        xn, yn = _native_offset_m(lat_s, lon_s, lat_a, lon_a)
+        alt_n, lat_n, lon_n, time_n = native
+        valid_n = np.isfinite(alt_n) & np.isfinite(lat_n) & np.isfinite(lon_n) \
+            & np.isfinite(time_n)
+        # Same anchor-radius filter used in _native_summary
+        valid_n &= (np.abs(lat_n - lat_a) <= 3.0)
+        valid_n &= (np.abs(((lon_n - lon_a) + 180) % 360 - 180) <= 3.0)
+        if not valid_n.any():
+            continue
+        idx_n = np.where(valid_n)[0]
+        j = int(idx_n[np.argmin(np.abs(alt_n[idx_n] - z_target))])
+
+        xn, yn = _native_offset_m(lat_n[j], lon_n[j], lat_a, lon_a)
         d = float(np.hypot(xg - xn, yg - yn))
         if d > threshold_m:
             bad.append((i, sid, d))
