@@ -515,6 +515,18 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
         "comment": "Bin-averaged within each grid cell. Computed as launch_time + "
                    "elapsed time from the sounding data.",
     }
+    if "estimated_observation_time" in out:
+        out["estimated_observation_time"].attrs = {
+            "long_name": "observation time with missing values filled at 5 m/s",
+            "comment": "Equals observation_time where that coordinate is finite. "
+                       "Where observation_time is missing (IGRA profiles lacking "
+                       "ETIME records — about 85% of profiles in the current "
+                       "subsample), synthesised as launch_time + (altitude - "
+                       "z_anchor) / (5 m/s), with z_anchor set to the lowest "
+                       "bin in the profile containing any primary data. Use "
+                       "observation_time when available; estimated_observation_time "
+                       "is a best-effort fallback for per-level time-based work.",
+        }
     if "nominal_time" in out:
         out["nominal_time"].attrs = {
             "long_name": "launch_time rounded to the nearest hour",
@@ -658,6 +670,35 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
     t_regrid = time.time() - t0
     print(f"  Regridded {n_prof} profiles in {t_regrid:.1f}s")
 
+    # Estimated observation time (IGRA only). For IGRA, ~85% of profiles have
+    # no ETIME field, so observation_time is NaT at every bin. We provide a
+    # best-effort alternative: equal to observation_time where that is finite,
+    # otherwise launch_time + (altitude - z_anchor) / 5 m/s, where z_anchor is
+    # the lowest bin in the profile containing any primary data variable
+    # (≈ station elevation for an IGRA radiosonde).
+    est_obs_time_arr = None
+    if name.startswith("igra"):
+        est_obs_time_arr = obs_time_arr.copy()
+        ASCENT_MS = 5.0
+        masks = [np.isfinite(data_arrays[v])
+                 for v in ("u", "v", "p", "T", "RH") if v in data_arrays]
+        data_mask = np.any(masks, axis=0) if masks else np.zeros_like(
+            obs_time_arr, dtype=bool)
+        for i in range(n_prof):
+            lt = launch_times[i]
+            if np.isnat(lt):
+                continue
+            mi = data_mask[i, :]
+            if not mi.any():
+                continue
+            k_min = int(np.argmax(mi))
+            z_anchor = altitude[k_min]
+            dt_ns = ((altitude - z_anchor) / ASCENT_MS * 1e9).astype(
+                "timedelta64[ns]")
+            est = lt + dt_ns
+            fill = mi & np.isnat(obs_time_arr[i, :])
+            est_obs_time_arr[i, fill] = est[fill]
+
     dims = ("sounding_id", "altitude")
     coords = {
         "altitude": altitude,
@@ -676,6 +717,8 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
         coords=coords,
     )
     out["observation_time"] = (dims, obs_time_arr)
+    if est_obs_time_arr is not None:
+        out["estimated_observation_time"] = (dims, est_obs_time_arr)
 
     _set_coord_attrs(out)
     out["sonde_id"].attrs = {"long_name": "provider sonde or profile identifier"}
