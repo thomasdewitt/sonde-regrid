@@ -522,10 +522,10 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
                        "Where observation_time is missing (IGRA profiles lacking "
                        "ETIME records — about 85% of profiles in the current "
                        "subsample), synthesised as launch_time + (altitude - "
-                       "z_anchor) / (5 m/s), with z_anchor set to the lowest "
-                       "bin in the profile containing any primary data. Use "
-                       "observation_time when available; estimated_observation_time "
-                       "is a best-effort fallback for per-level time-based work.",
+                       "station_elevation) / (5 m/s). Station elevation is taken "
+                       "from the IGRA metadata catalog. Use observation_time when "
+                       "available; estimated_observation_time is a best-effort "
+                       "fallback for per-level time-based work.",
         }
     if "launch_x" in out:
         out["launch_x"].attrs = {
@@ -576,10 +576,16 @@ def _global_attrs(name, z_max, n_soundings, n_alt, dz=None, provenance=None):
 
 
 def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
-                    provenance=None):
+                    provenance=None, surface_altitude=None):
     """Read, regrid, and save one dataset.
 
     Output dimensions: (sounding_id, altitude).
+
+    surface_altitude : float, optional
+        Release elevation in metres. For IGRA, the station elevation from
+        the metadata catalog; used as the anchor for
+        ``estimated_observation_time``. If None, falls back to the lowest
+        bin in each profile containing any primary data variable.
     """
     if z_max is None:
         z_max = Z_MAX_DEFAULT
@@ -659,9 +665,9 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
     # Estimated observation time (IGRA only). For IGRA, ~85% of profiles have
     # no ETIME field, so observation_time is NaT at every bin. We provide a
     # best-effort alternative: equal to observation_time where that is finite,
-    # otherwise launch_time + (altitude - z_anchor) / 5 m/s, where z_anchor is
-    # the lowest bin in the profile containing any primary data variable
-    # (≈ station elevation for an IGRA radiosonde).
+    # otherwise launch_time + (altitude - z_anchor) / 5 m/s. z_anchor is the
+    # station elevation when supplied (the physical release height), else the
+    # lowest bin in the profile containing any primary data.
     est_obs_time_arr = None
     if name.startswith("igra"):
         est_obs_time_arr = obs_time_arr.copy()
@@ -677,8 +683,10 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
             mi = data_mask[i, :]
             if not mi.any():
                 continue
-            k_min = int(np.argmax(mi))
-            z_anchor = altitude[k_min]
+            if surface_altitude is not None and np.isfinite(surface_altitude):
+                z_anchor = float(surface_altitude)
+            else:
+                z_anchor = altitude[int(np.argmax(mi))]
             dt_ns = ((altitude - z_anchor) / ASCENT_MS * 1e9).astype(
                 "timedelta64[ns]")
             est = lt + dt_ns
@@ -731,6 +739,8 @@ def _read_igra_metadata(metadata_path):
                 lat = float(line[49:60])
                 lon = float(line[60:72])
                 elev = float(line[72:82])
+                if elev >= 9999.0:  # IGRA missing-elevation sentinel
+                    elev = None
             except ValueError:
                 lat = lon = elev = None
 
@@ -818,11 +828,14 @@ def process_igra(stations=None):
                           subsample=IGRA_SUBSAMPLE, stations=[sid])
         if not profs:
             continue
+        station_meta = metadata.get(sid, {})
+        surface_altitude = station_meta.get("elevation") if station_meta else None
         process_dataset(
             f"igra/{sid}", reader=None, data_path=None,
             z_max=Z_MAX_IGRA, dz=DZ_IGRA,
             profiles=profs,
             provenance=_igra_provenance(metadata, sid),
+            surface_altitude=surface_altitude,
         )
 
 
