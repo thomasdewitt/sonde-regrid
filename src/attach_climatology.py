@@ -5,7 +5,13 @@ output files, in place.
 Run after ``src/process.py`` has populated ``output/``.  The script
 iterates over output NetCDFs one ERA5 variable at a time — first
 ``u_clim`` across all files, then ``v_clim`` — so that only a single
-20 GB slab resides in memory simultaneously.
+~19 GB slab set (12 months of one variable) resides in memory at once.
+
+With ``-j N`` (``N`` > 1), the per-file work for each variable pass is
+distributed across ``N`` fork-pool workers.  Slabs are loaded once in
+the parent before the pool is created, and the fork pool inherits them
+via COW, so total system memory stays near the single-process peak
+(~19 GB) regardless of worker count.
 
 See doc/regridding.tex §3.2 for the algorithm.
 
@@ -14,9 +20,12 @@ Usage:
     python attach_climatology.py joanne otrec    # specific dropsonde files
     python attach_climatology.py igra            # all IGRA stations
     python attach_climatology.py igra:USM00072451,USM00072764   # selected
+    python attach_climatology.py -j 8 igra       # 8 workers per variable pass
 """
 
+import concurrent.futures as _cf
 import glob
+import multiprocessing as _mp
 import os
 import sys
 import time
@@ -29,6 +38,7 @@ from climatology import (
     clear_cache,
     climatology_available,
     interpolate_climatology_at_points,
+    _slab,
 )
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -165,7 +175,61 @@ def attach_variable(path, era5_var):
         _write_var(path, vname, ("sounding_id", "altitude"), clim[era5_var])
 
 
-def main(argv):
+def _attach_task(args):
+    """Worker entry point: attach one variable to one file."""
+    path, era5_var = args
+    t0 = time.time()
+    try:
+        attach_variable(path, era5_var)
+    except Exception as e:
+        return path, f"FAILED — {e}", time.time() - t0
+    return path, "ok", time.time() - t0
+
+
+def _mem_available_gb():
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1024.0 / 1024.0
+    except Exception:
+        pass
+    return float("nan")
+
+
+def _run_variable_pass(paths, era5_var, workers):
+    """Run one variable pass either serially or via a fork pool."""
+    if workers <= 1:
+        for i, path in enumerate(paths, 1):
+            t0 = time.time()
+            try:
+                attach_variable(path, era5_var)
+            except Exception as e:
+                print(f"  [{i}/{len(paths)}] {path}: FAILED — {e}")
+                continue
+            print(f"  [{i}/{len(paths)}] {path}  {time.time()-t0:.1f}s")
+        return
+
+    # Pre-warm the 12 month slabs in the parent; fork-pool workers then
+    # share them via COW so total memory stays near a single-process peak.
+    print(f"  warming {era5_var} slab cache in parent "
+          f"(avail {_mem_available_gb():.1f} GB)...")
+    t0 = time.time()
+    for m in range(1, 13):
+        _slab(era5_var, m)
+    print(f"  warm in {time.time()-t0:.1f}s; avail now {_mem_available_gb():.1f} GB")
+
+    ctx = _mp.get_context("fork")
+    tasks = [(p, era5_var) for p in paths]
+    with _cf.ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+        done = 0
+        for path, status, dt in ex.map(_attach_task, tasks):
+            done += 1
+            tag = "" if status == "ok" else f"  {status}"
+            print(f"  [{done}/{len(paths)}] {path}  {dt:.1f}s{tag}")
+
+
+def main(argv, workers=32):
     if not climatology_available():
         print("ERROR: ERA5 climatology files not found at "
               "../era5-climatology/data/era5_{u,v}_climatology_1995-2025.nc")
@@ -176,18 +240,12 @@ def main(argv):
         print("no output files to process")
         sys.exit(1)
 
-    print(f"attaching ERA5 climatology to {len(paths)} NetCDF file(s)")
+    print(f"attaching ERA5 climatology to {len(paths)} NetCDF file(s) "
+          f"with {workers} worker(s)")
 
     for era5_var in ("u", "v"):
         print(f"\n=== pass: {era5_var}_clim ===")
-        for i, path in enumerate(paths, 1):
-            t0 = time.time()
-            try:
-                attach_variable(path, era5_var)
-            except Exception as e:
-                print(f"  [{i}/{len(paths)}] {path}: FAILED — {e}")
-                continue
-            print(f"  [{i}/{len(paths)}] {path}  {time.time()-t0:.1f}s")
+        _run_variable_pass(paths, era5_var, workers)
         print(f"releasing {era5_var} cache...")
         clear_cache()
 
@@ -202,5 +260,30 @@ def main(argv):
     print("done.")
 
 
+def _parse_jobs(argv):
+    """Pop -j / --jobs from argv and return (workers, remaining_argv)."""
+    workers = 32
+    rest = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ("-j", "--jobs"):
+            workers = int(argv[i + 1])
+            i += 2
+            continue
+        if a.startswith("--jobs="):
+            workers = int(a.split("=", 1)[1])
+            i += 1
+            continue
+        if a.startswith("-j") and a[2:].isdigit():
+            workers = int(a[2:])
+            i += 1
+            continue
+        rest.append(a)
+        i += 1
+    return workers, rest
+
+
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    workers, rest = _parse_jobs(sys.argv[1:])
+    main(rest, workers=workers)
