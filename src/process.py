@@ -90,33 +90,39 @@ def _igra_ascent_elapsed_s(z_anchor, altitudes):
 
 
 def _attach_estimated_obs_time(profiles, surface_altitude):
-    """Attach an ``obs_time_estimated`` per-level array to each IGRA profile.
+    """Attach an ``obs_time_estimated`` per-level array to every IGRA profile.
 
-    Where the reader's ``obs_time`` is finite (ETIME was reported), that
-    value is preserved.  Where it is NaT, the value is synthesised as
-    ``launch_time`` plus the piecewise-constant ascent time from the
-    supplied station elevation.  Profiles without a finite launch_time or
-    without a known station elevation are left untouched.
+    The attached array always has the same length as ``altitude``.  Where
+    the reader's ``obs_time`` is finite (ETIME was reported), that value is
+    preserved.  Where ``obs_time`` is NaT and both the station elevation
+    and the profile's ``launch_time`` are known, the value is synthesised
+    as ``launch_time`` plus the piecewise-constant ascent time from the
+    station elevation.  In all other cases (station elevation missing, or
+    ``launch_time`` missing) the corresponding bins stay NaT, so the
+    variable is still present on the output file but may be partly or
+    entirely missing.
     """
-    if surface_altitude is None or not np.isfinite(surface_altitude):
-        return
-    z0 = float(surface_altitude)
+    z0 = (float(surface_altitude)
+          if surface_altitude is not None and np.isfinite(surface_altitude)
+          else None)
     for prof in profiles:
-        lt = prof.get("launch_time")
         alt = prof.get("altitude")
-        if lt is None or alt is None:
+        if alt is None:
             continue
         alt = np.asarray(alt, dtype=np.float64)
-        elapsed_s = _igra_ascent_elapsed_s(z0, alt)
-        synthesised = lt + (elapsed_s * 1e9).astype("timedelta64[ns]")
         raw = prof.get("obs_time")
         if raw is None:
-            prof["obs_time_estimated"] = synthesised
+            filled = np.full(alt.shape[0], np.datetime64("NaT"),
+                              dtype="datetime64[ns]")
         else:
             filled = np.asarray(raw, dtype="datetime64[ns]").copy()
+        lt = prof.get("launch_time")
+        if z0 is not None and lt is not None:
+            elapsed_s = _igra_ascent_elapsed_s(z0, alt)
+            synthesised = lt + (elapsed_s * 1e9).astype("timedelta64[ns]")
             nat_mask = np.isnat(filled)
             filled[nat_mask] = synthesised[nat_mask]
-            prof["obs_time_estimated"] = filled
+        prof["obs_time_estimated"] = filled
 
 VARIABLE_ATTRS = {
     "u":       {"units": "m s-1",   "long_name": "zonal wind",
@@ -588,7 +594,9 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
                        "subsample), synthesised as launch_time plus a piecewise-"
                        "constant ascent model anchored at the station elevation: "
                        "5.0 m/s below 20 km and 6.0 m/s above, calibrated from the "
-                       "~217k profiles with valid ETIME. This is also the time "
+                       "~217k profiles with valid ETIME. Bins are left NaT when "
+                       "the station elevation is unknown (no IGRA catalog entry) or "
+                       "the profile has no finite launch_time. This is also the time "
                        "coordinate used for horizontal drift integration, so IGRA "
                        "drift tracks are defined even when ETIME is missing.",
         }
