@@ -84,6 +84,36 @@ def _igra_ascent_elapsed_s(z_anchor, altitudes):
     d_high = np.maximum(0.0, zone_high_end - zone_high_start)
     return d_low / r_lo + d_high / r_hi
 
+
+def _attach_estimated_obs_time(profiles, surface_altitude):
+    """Attach an ``obs_time_estimated`` per-level array to each IGRA profile.
+
+    Where the reader's ``obs_time`` is finite (ETIME was reported), that
+    value is preserved.  Where it is NaT, the value is synthesised as
+    ``launch_time`` plus the piecewise-constant ascent time from the
+    supplied station elevation.  Profiles without a finite launch_time or
+    without a known station elevation are left untouched.
+    """
+    if surface_altitude is None or not np.isfinite(surface_altitude):
+        return
+    z0 = float(surface_altitude)
+    for prof in profiles:
+        lt = prof.get("launch_time")
+        alt = prof.get("altitude")
+        if lt is None or alt is None:
+            continue
+        alt = np.asarray(alt, dtype=np.float64)
+        elapsed_s = _igra_ascent_elapsed_s(z0, alt)
+        synthesised = lt + (elapsed_s * 1e9).astype("timedelta64[ns]")
+        raw = prof.get("obs_time")
+        if raw is None:
+            prof["obs_time_estimated"] = synthesised
+        else:
+            filled = np.asarray(raw, dtype="datetime64[ns]").copy()
+            nat_mask = np.isnat(filled)
+            filled[nat_mask] = synthesised[nat_mask]
+            prof["obs_time_estimated"] = filled
+
 VARIABLE_ATTRS = {
     "u":       {"units": "m s-1",   "long_name": "zonal wind",
                 "standard_name": "eastward_wind"},
@@ -504,13 +534,17 @@ def _regrid_profile(prof, z_max, dz=None):
     if "q" in prof and prof["q"] is not None:
         variables["q"] = prof["q"]
     obs_time = prof.get("obs_time")
+    est_obs_time = prof.get("obs_time_estimated")
     ds = regrid_sonde(prof["altitude"], variables, z_min=Z_MIN, z_max=z_max, dz=dz,
                       obs_time=obs_time,
+                      estimated_obs_time=est_obs_time,
                       launch_lat=prof.get("launch_lat", np.nan),
                       launch_lon=prof.get("launch_lon", np.nan))
     result = {var: ds[var].values for var in DATA_VARIABLES if var in ds}
     if "observation_time" in ds:
         result["observation_time"] = ds["observation_time"].values
+    if "estimated_observation_time" in ds:
+        result["estimated_observation_time"] = ds["estimated_observation_time"].values
     return result
 
 
@@ -550,9 +584,9 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
                        "subsample), synthesised as launch_time plus a piecewise-"
                        "constant ascent model anchored at the station elevation: "
                        "5.0 m/s below 20 km and 6.0 m/s above, calibrated from the "
-                       "~217k profiles with valid ETIME. Use observation_time "
-                       "when available; estimated_observation_time is a best-"
-                       "effort fallback for per-level time-based work.",
+                       "~217k profiles with valid ETIME. This is also the time "
+                       "coordinate used for horizontal drift integration, so IGRA "
+                       "drift tracks are defined even when ETIME is missing.",
         }
     if "launch_x" in out:
         out["launch_x"].attrs = {
@@ -603,16 +637,15 @@ def _global_attrs(name, z_max, n_soundings, n_alt, dz=None, provenance=None):
 
 
 def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
-                    provenance=None, surface_altitude=None):
+                    provenance=None):
     """Read, regrid, and save one dataset.
 
     Output dimensions: (sounding_id, altitude).
 
-    surface_altitude : float, optional
-        Release elevation in metres. For IGRA, the station elevation from
-        the metadata catalog; used as the anchor for
-        ``estimated_observation_time``. If None, falls back to the lowest
-        bin in each profile containing any primary data variable.
+    The optional ``obs_time_estimated`` key on each profile is passed through
+    to the regridder as ``estimated_obs_time``.  For IGRA, that key is
+    populated by :func:`process_igra` using the piecewise ascent model
+    anchored at the station elevation.
     """
     if z_max is None:
         z_max = Z_MAX_DEFAULT
@@ -660,6 +693,12 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
 
     data_arrays = {var: np.full((n_prof, n_alt), np.nan) for var in DATA_VARIABLES}
     obs_time_arr = np.full((n_prof, n_alt), np.datetime64("NaT"), dtype="datetime64[ns]")
+    has_est_obs_time = any("obs_time_estimated" in p for p in profiles)
+    if has_est_obs_time:
+        est_obs_time_arr = np.full((n_prof, n_alt), np.datetime64("NaT"),
+                                     dtype="datetime64[ns]")
+    else:
+        est_obs_time_arr = None
     sonde_ids = []
     launch_times = np.empty(n_prof, dtype="datetime64[ns]")
     launch_lats = np.full(n_prof, np.nan)
@@ -677,6 +716,8 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
                 data_arrays[var][i, :] = gridded[var]
         if "observation_time" in gridded:
             obs_time_arr[i, :] = gridded["observation_time"]
+        if est_obs_time_arr is not None and "estimated_observation_time" in gridded:
+            est_obs_time_arr[i, :] = gridded["estimated_observation_time"]
 
         sonde_ids.append(prof.get("sonde_id", f"sonde_{i:06d}"))
         launch_times[i] = prof.get("launch_time") or np.datetime64("NaT")
@@ -688,37 +729,6 @@ def process_dataset(name, reader, data_path, z_max=None, dz=None, profiles=None,
 
     t_regrid = time.time() - t0
     print(f"  Regridded {n_prof} profiles in {t_regrid:.1f}s")
-
-    # Estimated observation time (IGRA only). For IGRA, ~85% of profiles have
-    # no ETIME field, so observation_time is NaT at every bin. We provide a
-    # best-effort alternative: equal to observation_time where that is finite,
-    # otherwise launch_time + elapsed_ascent_time(z_anchor, altitude) using
-    # the piecewise-constant IGRA_ASCENT_RATE_LOW/HIGH model. z_anchor is the
-    # station elevation when supplied (the physical release height), else the
-    # lowest bin in the profile containing any primary data.
-    est_obs_time_arr = None
-    if name.startswith("igra"):
-        est_obs_time_arr = obs_time_arr.copy()
-        masks = [np.isfinite(data_arrays[v])
-                 for v in ("u", "v", "p", "T", "RH") if v in data_arrays]
-        data_mask = np.any(masks, axis=0) if masks else np.zeros_like(
-            obs_time_arr, dtype=bool)
-        for i in range(n_prof):
-            lt = launch_times[i]
-            if np.isnat(lt):
-                continue
-            mi = data_mask[i, :]
-            if not mi.any():
-                continue
-            if surface_altitude is not None and np.isfinite(surface_altitude):
-                z_anchor = float(surface_altitude)
-            else:
-                z_anchor = altitude[int(np.argmax(mi))]
-            elapsed_s = _igra_ascent_elapsed_s(z_anchor, altitude)
-            dt_ns = (elapsed_s * 1e9).astype("timedelta64[ns]")
-            est = lt + dt_ns
-            fill = mi & np.isnat(obs_time_arr[i, :])
-            est_obs_time_arr[i, fill] = est[fill]
 
     dims = ("sounding_id", "altitude")
     coords = {
@@ -857,12 +867,12 @@ def process_igra(stations=None):
             continue
         station_meta = metadata.get(sid, {})
         surface_altitude = station_meta.get("elevation") if station_meta else None
+        _attach_estimated_obs_time(profs, surface_altitude)
         process_dataset(
             f"igra/{sid}", reader=None, data_path=None,
             z_max=Z_MAX_IGRA, dz=DZ_IGRA,
             profiles=profs,
             provenance=_igra_provenance(metadata, sid),
-            surface_altitude=surface_altitude,
         )
 
 

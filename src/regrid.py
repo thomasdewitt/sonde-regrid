@@ -98,7 +98,7 @@ def bin_average_time(altitude, times, edges):
 
 
 def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None,
-                  launch_lat=np.nan, launch_lon=np.nan):
+                  estimated_obs_time=None, launch_lat=np.nan, launch_lon=np.nan):
     """Regrid a single sonde profile and diagnose derived variables.
 
     Parameters
@@ -114,7 +114,13 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None
     dz : float
         Grid spacing [m].
     obs_time : ndarray of datetime64, optional
-        Per-observation timestamps, same length as altitude.
+        Per-observation timestamps, same length as altitude.  Becomes the
+        ``observation_time`` coordinate in the output.
+    estimated_obs_time : ndarray of datetime64, optional
+        Per-observation timestamps with missing values filled by a source-
+        specific synthesis (e.g., IGRA's piecewise ascent model).  When
+        given, is bin-averaged to produce ``estimated_observation_time``
+        and is used for drift integration in place of ``obs_time``.
     launch_lat, launch_lon : float, optional
         Launch position.  Used to anchor the horizontal drift track
         (§3.1 of the spec).  NaN disables lat/lon outputs.
@@ -124,9 +130,10 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None
     ds : xarray.Dataset
         Regridded profile on cell-center altitudes, with both directly
         averaged and diagnosed variables.  Includes "observation_time"
-        if obs_time is provided, and horizontal drift fields (x_offset,
-        y_offset, lat, lon) when winds and observation_time are all
-        available on the grid.
+        if obs_time is provided, "estimated_observation_time" if
+        estimated_obs_time is provided, and horizontal drift fields
+        (x_offset, y_offset, lat, lon) when winds and a per-level time
+        are all available on the grid.
     """
     edges = make_grid(z_min, z_max, dz)
     z_centers = 0.5 * (edges[:-1] + edges[1:])
@@ -167,18 +174,27 @@ def regrid_sonde(altitude, variables, z_min, z_max, dz=DEFAULT_DZ, obs_time=None
     )
     ds["altitude"].attrs = {"units": "m", "long_name": "altitude above mean sea level"}
 
+    gridded_time = None
     if obs_time is not None:
         gridded_time = bin_average_time(altitude, obs_time, edges)
         ds["observation_time"] = ("altitude", gridded_time)
 
-        if "u" in gridded and "v" in gridded:
-            x_off, y_off, lat, lon = integrate_drift(
-                z_centers, gridded_time, gridded["u"], gridded["v"],
-                launch_lat, launch_lon,
-            )
-            ds["x_offset"] = ("altitude", x_off)
-            ds["y_offset"] = ("altitude", y_off)
-            ds["lat"] = ("altitude", lat)
-            ds["lon"] = ("altitude", lon)
+    gridded_est_time = None
+    if estimated_obs_time is not None:
+        gridded_est_time = bin_average_time(altitude, estimated_obs_time, edges)
+        ds["estimated_observation_time"] = ("altitude", gridded_est_time)
+
+    # Prefer the estimated (always-populated) time for drift integration
+    # when available, so profiles lacking ETIME still get a drift track.
+    drift_time = gridded_est_time if gridded_est_time is not None else gridded_time
+    if drift_time is not None and "u" in gridded and "v" in gridded:
+        x_off, y_off, lat, lon = integrate_drift(
+            z_centers, drift_time, gridded["u"], gridded["v"],
+            launch_lat, launch_lon,
+        )
+        ds["x_offset"] = ("altitude", x_off)
+        ds["y_offset"] = ("altitude", y_off)
+        ds["lat"] = ("altitude", lat)
+        ds["lon"] = ("altitude", lon)
 
     return ds
