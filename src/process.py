@@ -7,8 +7,12 @@ Output dimensions are (sounding_id, altitude).
 Usage:
     python process.py                 # process all datasets
     python process.py joanne otrec    # process specific datasets
+    python process.py -j 8 igra       # parallelise IGRA across 8 workers
 """
 
+import concurrent.futures as _cf
+import contextlib
+import io
 import os
 import sys
 import time
@@ -818,16 +822,48 @@ def _igra_provenance(metadata, station_id):
     return provenance
 
 
-def process_igra(stations=None):
+def _process_one_igra_station(args):
+    """Worker: read → synthesise ETIME → regrid → write, for one station.
+
+    Suppresses per-station stdout from the inner calls so parallel runs do
+    not interleave lines; returns a short summary instead.
+    """
+    (sid, data_path, station_meta, station_provenance,
+     z_max, dz, year_min, year_max, subsample) = args
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        profs = read_igra(
+            data_path, year_min=year_min, year_max=year_max,
+            subsample=subsample, stations=[sid],
+        )
+        if not profs:
+            return sid, 0
+        surface_altitude = station_meta.get("elevation") if station_meta else None
+        _attach_estimated_obs_time(profs, surface_altitude)
+        process_dataset(
+            f"igra/{sid}", reader=None, data_path=None,
+            z_max=z_max, dz=dz,
+            profiles=profs,
+            provenance=station_provenance,
+        )
+    return sid, len(profs)
+
+
+def process_igra(stations=None, workers=None):
     """Process IGRA: one file per station, all years combined.
 
     Reads and writes one station at a time to avoid loading the entire
-    archive into memory.
+    archive into memory.  Stations are fully independent, so when
+    ``workers`` > 1 they are distributed across a ``ProcessPoolExecutor``.
 
     Parameters
     ----------
     stations : list of str, optional
         Station IDs to process. If None, process all stations.
+    workers : int, optional
+        Number of parallel worker processes.  ``None`` (default) uses
+        ``os.cpu_count()``; pass ``1`` for a serial run with streaming
+        per-station stdout.
 
     Output dimensions: (sounding_id, altitude).
     """
@@ -856,24 +892,56 @@ def process_igra(stations=None):
         else:
             todo.append(sid)
 
-    print(f"  {len(todo)} stations to process")
-
     n_todo = len(todo)
-    for idx, sid in enumerate(todo, 1):
-        print(f"\n  [{idx}/{n_todo}] {sid}")
-        profs = read_igra(data_path, year_min=IGRA_YEAR_MIN, year_max=IGRA_YEAR_MAX,
-                          subsample=IGRA_SUBSAMPLE, stations=[sid])
-        if not profs:
-            continue
-        station_meta = metadata.get(sid, {})
-        surface_altitude = station_meta.get("elevation") if station_meta else None
-        _attach_estimated_obs_time(profs, surface_altitude)
-        process_dataset(
-            f"igra/{sid}", reader=None, data_path=None,
-            z_max=Z_MAX_IGRA, dz=DZ_IGRA,
-            profiles=profs,
-            provenance=_igra_provenance(metadata, sid),
-        )
+    if n_todo == 0:
+        return
+
+    if workers is None:
+        workers = os.cpu_count() or 1
+    workers = max(1, min(workers, n_todo))
+
+    print(f"  {n_todo} stations to process with {workers} worker(s)")
+
+    tasks = [
+        (sid, data_path, metadata.get(sid, {}), _igra_provenance(metadata, sid),
+         Z_MAX_IGRA, DZ_IGRA, IGRA_YEAR_MIN, IGRA_YEAR_MAX, IGRA_SUBSAMPLE)
+        for sid in todo
+    ]
+
+    if workers == 1:
+        for idx, task in enumerate(tasks, 1):
+            sid = task[0]
+            print(f"\n  [{idx}/{n_todo}] {sid}")
+            profs = read_igra(
+                data_path, year_min=IGRA_YEAR_MIN, year_max=IGRA_YEAR_MAX,
+                subsample=IGRA_SUBSAMPLE, stations=[sid],
+            )
+            if not profs:
+                continue
+            station_meta = metadata.get(sid, {})
+            _attach_estimated_obs_time(profs, station_meta.get("elevation"))
+            process_dataset(
+                f"igra/{sid}", reader=None, data_path=None,
+                z_max=Z_MAX_IGRA, dz=DZ_IGRA,
+                profiles=profs,
+                provenance=_igra_provenance(metadata, sid),
+            )
+        return
+
+    t0 = time.time()
+    with _cf.ProcessPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_process_one_igra_station, t): t[0] for t in tasks}
+        done = 0
+        for fut in _cf.as_completed(futures):
+            done += 1
+            sid = futures[fut]
+            try:
+                _, n_profs = fut.result()
+            except Exception as exc:
+                print(f"  [{done}/{n_todo}] {sid} — FAILED: {exc}")
+                continue
+            print(f"  [{done}/{n_todo}] {sid} — {n_profs} profiles")
+    print(f"  IGRA pool finished in {time.time() - t0:.1f}s")
 
 
 def main():
@@ -884,8 +952,33 @@ def main():
         python process.py joanne otrec             # specific dropsonde datasets
         python process.py igra                     # all IGRA stations
         python process.py igra:USM00072451,USM00072764  # specific IGRA stations
+        python process.py -j 8 igra                # 8-way parallel IGRA (default: os.cpu_count())
     """
-    args = sys.argv[1:] if len(sys.argv) > 1 else list(DATASETS.keys())
+    raw = sys.argv[1:]
+
+    # Parse -j/--jobs (applies to IGRA; other datasets are single-file).
+    workers = None
+    args = []
+    i = 0
+    while i < len(raw):
+        a = raw[i]
+        if a in ("-j", "--jobs"):
+            workers = int(raw[i + 1])
+            i += 2
+            continue
+        if a.startswith("--jobs="):
+            workers = int(a.split("=", 1)[1])
+            i += 1
+            continue
+        if a.startswith("-j") and a[2:].isdigit():
+            workers = int(a[2:])
+            i += 1
+            continue
+        args.append(a)
+        i += 1
+
+    if not args:
+        args = list(DATASETS.keys())
 
     # Parse igra:STATION1,STATION2 syntax (multiple igra: args are merged)
     names = []
@@ -907,7 +1000,7 @@ def main():
 
     for name in names:
         if name == "igra":
-            process_igra(stations=igra_stations)
+            process_igra(stations=igra_stations, workers=workers)
         else:
             cfg = DATASETS[name]
             process_dataset(name, cfg["reader"], cfg["path"],
