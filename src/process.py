@@ -63,6 +63,12 @@ IGRA_ASCENT_BREAK_M = 20000.0
 IGRA_ASCENT_RATE_LOW = 5.0   # m/s, at or below IGRA_ASCENT_BREAK_M
 IGRA_ASCENT_RATE_HIGH = 6.0  # m/s, above IGRA_ASCENT_BREAK_M
 
+# Sanity guard on reported ETIME values used to anchor the ascent synthesis.
+# If the first reported per-level time differs from RELTIME by more than this,
+# the ETIME is considered unreliable (e.g. the 8 observed profiles with
+# ETIME[0] of 60-99 min) and the anchor falls back to launch_time + surface.
+IGRA_ANCHOR_TOLERANCE_S = 200.0
+
 DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE",
                    "x_offset", "y_offset", "lat", "lon"]
 
@@ -125,8 +131,18 @@ def _attach_estimated_obs_time(profiles, surface_altitude):
             reported = np.where(~np.isnat(raw_arr) & np.isfinite(alt))[0]
             if reported.size:
                 i0 = int(reported[0])
-                z_ref = float(alt[i0])
-                t_ref = raw_arr[i0]
+                z_candidate = float(alt[i0])
+                t_candidate = raw_arr[i0]
+                # Guard: reject the ETIME-based anchor if the first reported
+                # obs_time is far from RELTIME. These cases (8 observed in
+                # the 2000-2025 subsample) indicate either a late-first-valid
+                # ETIME artefact or a data-quality issue, and anchoring at a
+                # time tens of minutes after launch would propagate that
+                # offset to every synthesised level above.
+                dt_s = (t_candidate - lt) / np.timedelta64(1, "s")
+                if abs(dt_s) <= IGRA_ANCHOR_TOLERANCE_S:
+                    z_ref = z_candidate
+                    t_ref = t_candidate
         if z_ref is None:
             if z0_catalog is not None:
                 z_ref = z0_catalog
@@ -618,16 +634,20 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
                        "constant ascent model (5.0 m/s below 20 km, 6.0 m/s "
                        "above), calibrated from the ~217k profiles with valid "
                        "ETIME. The synthesis is anchored at the first finite "
-                       "observation_time (preserving continuity with reported "
-                       "ETIME values when present); if no ETIME is reported "
-                       "anywhere in the profile, the anchor is the station "
-                       "elevation from the IGRA metadata catalog with elapsed "
-                       "time zero at launch_time. For the ~23% of station "
-                       "files not in the metadata catalog, the fallback anchor "
-                       "is the lowest finite altitude in each profile. This "
-                       "is also the time coordinate used for horizontal drift "
-                       "integration, so IGRA drift tracks are defined even "
-                       "when ETIME is missing.",
+                       "observation_time when that time is within 200 s of "
+                       "launch_time (preserving continuity with reported ETIME "
+                       "values). If no ETIME is reported anywhere in the "
+                       "profile, or if the first reported time is more than "
+                       "200 s from launch_time (a data-quality guard against "
+                       "the handful of profiles with anomalously late first "
+                       "ETIMEs), the anchor falls back to the station "
+                       "elevation from the IGRA metadata catalog with "
+                       "elapsed time zero at launch_time. For the ~23% of "
+                       "station files not in the metadata catalog, the final "
+                       "fallback anchor is the lowest finite altitude in each "
+                       "profile. This is also the time coordinate used for "
+                       "horizontal drift integration, so IGRA drift tracks "
+                       "are defined even when ETIME is missing.",
         }
     if "launch_x" in out:
         out["launch_x"].attrs = {
