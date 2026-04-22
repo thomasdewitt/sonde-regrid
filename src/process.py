@@ -91,18 +91,28 @@ def _attach_estimated_obs_time(profiles, surface_altitude):
     Where the reader's ``obs_time`` is finite (ETIME was reported), that
     value is preserved.  Where it is NaT, the value is synthesised as
     ``launch_time`` plus the piecewise-constant ascent time from the
-    supplied station elevation.  Profiles without a finite launch_time or
-    without a known station elevation are left untouched.
+    anchor altitude.  The anchor is ``surface_altitude`` (IGRA metadata
+    catalog station elevation) when available; otherwise the lowest
+    finite altitude in the profile is used as a fallback, giving zero
+    elapsed time at the first observed level.  Profiles without a
+    launch_time or altitude array are skipped.
     """
-    if surface_altitude is None or not np.isfinite(surface_altitude):
-        return
-    z0 = float(surface_altitude)
+    z0_catalog = None
+    if surface_altitude is not None and np.isfinite(surface_altitude):
+        z0_catalog = float(surface_altitude)
     for prof in profiles:
         lt = prof.get("launch_time")
         alt = prof.get("altitude")
         if lt is None or alt is None:
             continue
         alt = np.asarray(alt, dtype=np.float64)
+        if z0_catalog is not None:
+            z0 = z0_catalog
+        else:
+            finite_alt = alt[np.isfinite(alt)]
+            if finite_alt.size == 0:
+                continue
+            z0 = float(finite_alt.min())
         elapsed_s = _igra_ascent_elapsed_s(z0, alt)
         synthesised = lt + (elapsed_s * 1e9).astype("timedelta64[ns]")
         raw = prof.get("obs_time")
@@ -582,11 +592,16 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
                        "Where observation_time is missing (IGRA profiles lacking "
                        "ETIME records — about 85% of profiles in the current "
                        "subsample), synthesised as launch_time plus a piecewise-"
-                       "constant ascent model anchored at the station elevation: "
-                       "5.0 m/s below 20 km and 6.0 m/s above, calibrated from the "
-                       "~217k profiles with valid ETIME. This is also the time "
-                       "coordinate used for horizontal drift integration, so IGRA "
-                       "drift tracks are defined even when ETIME is missing.",
+                       "constant ascent model anchored at the station elevation "
+                       "from the IGRA metadata catalog: 5.0 m/s below 20 km and "
+                       "6.0 m/s above, calibrated from the ~217k profiles with "
+                       "valid ETIME. For the ~23% of station files with no "
+                       "metadata-catalog entry, the anchor falls back to the "
+                       "lowest finite altitude in each profile (zero elapsed "
+                       "time at the first observed level). This is also the "
+                       "time coordinate used for horizontal drift integration, "
+                       "so IGRA drift tracks are defined even when ETIME is "
+                       "missing.",
         }
     if "launch_x" in out:
         out["launch_x"].attrs = {
