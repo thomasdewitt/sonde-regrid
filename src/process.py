@@ -861,9 +861,8 @@ def process_igra(stations=None, workers=None):
     stations : list of str, optional
         Station IDs to process. If None, process all stations.
     workers : int, optional
-        Number of parallel worker processes.  ``None`` (default) uses
-        ``os.cpu_count()``; pass ``1`` for a serial run with streaming
-        per-station stdout.
+        Number of parallel worker processes.  ``None`` (default) uses 32;
+        pass ``1`` for a serial run with streaming per-station stdout.
 
     Output dimensions: (sounding_id, altitude).
     """
@@ -897,7 +896,7 @@ def process_igra(stations=None, workers=None):
         return
 
     if workers is None:
-        workers = os.cpu_count() or 1
+        workers = 32
     workers = max(1, min(workers, n_todo))
 
     print(f"  {n_todo} stations to process with {workers} worker(s)")
