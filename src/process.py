@@ -63,98 +63,49 @@ IGRA_ASCENT_BREAK_M = 20000.0
 IGRA_ASCENT_RATE_LOW = 5.0   # m/s, at or below IGRA_ASCENT_BREAK_M
 IGRA_ASCENT_RATE_HIGH = 6.0  # m/s, above IGRA_ASCENT_BREAK_M
 
-# Sanity guard on reported ETIME values used to anchor the ascent synthesis.
-# If the first reported per-level time differs from RELTIME by more than this,
-# the ETIME is considered unreliable (e.g. the 8 observed profiles with
-# ETIME[0] of 60-99 min) and the anchor falls back to launch_time + surface.
-IGRA_ANCHOR_TOLERANCE_S = 200.0
-
 DATA_VARIABLES = ["u", "v", "p", "T", "RH", "q", "theta", "theta_e", "MSE", "DSE",
                    "x_offset", "y_offset", "lat", "lon"]
 
 
-def _igra_cumulative_ascent_s(altitudes):
-    """Cumulative ascent time (s) from sea level to each altitude under the
-    piecewise-constant IGRA ascent model.  Linear below IGRA_ASCENT_BREAK_M
-    at IGRA_ASCENT_RATE_LOW, linear above at IGRA_ASCENT_RATE_HIGH.
+def _igra_ascent_elapsed_s(z_anchor, altitudes):
+    """Cumulative ascent time (s) from z_anchor (m) to each altitude in
+    ``altitudes`` (m) under the piecewise-constant IGRA ascent model.
+    Returns zero for altitudes at or below ``z_anchor``.
     """
     b = IGRA_ASCENT_BREAK_M
     r_lo, r_hi = IGRA_ASCENT_RATE_LOW, IGRA_ASCENT_RATE_HIGH
-    z = np.asarray(altitudes, dtype=np.float64)
-    below = np.minimum(z, b)
-    above = np.maximum(z - b, 0.0)
-    return below / r_lo + above / r_hi
-
-
-def _igra_ascent_elapsed_s(z_anchor, altitudes):
-    """Signed elapsed time (s) from z_anchor (m) to each altitude.  Positive
-    above z_anchor, negative below, using the piecewise-constant IGRA ascent
-    model.
-    """
-    return _igra_cumulative_ascent_s(altitudes) - _igra_cumulative_ascent_s(z_anchor)
+    # Altitude traversed in the below-break zone.
+    zone_low_start = min(z_anchor, b)
+    zone_low_end = np.minimum(altitudes, b)
+    d_low = np.maximum(0.0, zone_low_end - zone_low_start)
+    # Altitude traversed in the above-break zone.
+    zone_high_start = max(z_anchor, b)
+    zone_high_end = np.maximum(altitudes, b)
+    d_high = np.maximum(0.0, zone_high_end - zone_high_start)
+    return d_low / r_lo + d_high / r_hi
 
 
 def _attach_estimated_obs_time(profiles, surface_altitude):
     """Attach an ``obs_time_estimated`` per-level array to each IGRA profile.
 
-    Reported ``obs_time`` values (those derived from a finite ETIME) are
-    preserved exactly.  Missing values are filled by the piecewise-constant
-    ascent model, anchored to keep synthesised values continuous with the
-    reported ones:
-
-      1. If any level has a finite reported ``obs_time``, the synthesis is
-         anchored at the *first* such (altitude, time) pair.  This avoids
-         the discontinuity that would arise from anchoring at launch_time
-         when ETIME[0] > 0.
-      2. Otherwise, the anchor time is ``launch_time`` and the anchor
-         altitude is the station elevation from the IGRA metadata catalog.
-      3. If the catalog has no entry for the station, the fallback anchor
-         is the lowest finite altitude in the profile (elapsed = 0 there).
-
-    Profiles without ``launch_time`` or ``altitude`` are skipped.
+    Where the reader's ``obs_time`` is finite (ETIME was reported), that
+    value is preserved.  Where it is NaT, the value is synthesised as
+    ``launch_time`` plus the piecewise-constant ascent time from the
+    supplied station elevation.  Profiles without a finite launch_time or
+    without a known station elevation are left untouched.
     """
-    z0_catalog = None
-    if surface_altitude is not None and np.isfinite(surface_altitude):
-        z0_catalog = float(surface_altitude)
+    if surface_altitude is None or not np.isfinite(surface_altitude):
+        return
+    z0 = float(surface_altitude)
     for prof in profiles:
         lt = prof.get("launch_time")
         alt = prof.get("altitude")
         if lt is None or alt is None:
             continue
         alt = np.asarray(alt, dtype=np.float64)
+        elapsed_s = _igra_ascent_elapsed_s(z0, alt)
+        synthesised = lt + (elapsed_s * 1e9).astype("timedelta64[ns]")
         raw = prof.get("obs_time")
-
-        z_ref = None
-        t_ref = None
-        if raw is not None:
-            raw_arr = np.asarray(raw, dtype="datetime64[ns]")
-            reported = np.where(~np.isnat(raw_arr) & np.isfinite(alt))[0]
-            if reported.size:
-                i0 = int(reported[0])
-                z_candidate = float(alt[i0])
-                t_candidate = raw_arr[i0]
-                # Guard: reject the ETIME-based anchor if the first reported
-                # obs_time is far from RELTIME. These cases (8 observed in
-                # the 2000-2025 subsample) indicate either a late-first-valid
-                # ETIME artefact or a data-quality issue, and anchoring at a
-                # time tens of minutes after launch would propagate that
-                # offset to every synthesised level above.
-                dt_s = (t_candidate - lt) / np.timedelta64(1, "s")
-                if abs(dt_s) <= IGRA_ANCHOR_TOLERANCE_S:
-                    z_ref = z_candidate
-                    t_ref = t_candidate
-        if z_ref is None:
-            if z0_catalog is not None:
-                z_ref = z0_catalog
-            else:
-                finite_alt = alt[np.isfinite(alt)]
-                if finite_alt.size == 0:
-                    continue
-                z_ref = float(finite_alt.min())
-            t_ref = lt
-
-        elapsed_s = _igra_ascent_elapsed_s(z_ref, alt)
-        synthesised = t_ref + (elapsed_s * 1e9).astype("timedelta64[ns]")
         if raw is None:
             prof["obs_time_estimated"] = synthesised
         else:
@@ -630,24 +581,12 @@ def _set_coord_attrs(out, lat_long_name="latitude at profile start",
             "comment": "Equals observation_time where that coordinate is finite. "
                        "Where observation_time is missing (IGRA profiles lacking "
                        "ETIME records — about 85% of profiles in the current "
-                       "subsample), values are synthesised using a piecewise-"
-                       "constant ascent model (5.0 m/s below 20 km, 6.0 m/s "
-                       "above), calibrated from the ~217k profiles with valid "
-                       "ETIME. The synthesis is anchored at the first finite "
-                       "observation_time when that time is within 200 s of "
-                       "launch_time (preserving continuity with reported ETIME "
-                       "values). If no ETIME is reported anywhere in the "
-                       "profile, or if the first reported time is more than "
-                       "200 s from launch_time (a data-quality guard against "
-                       "the handful of profiles with anomalously late first "
-                       "ETIMEs), the anchor falls back to the station "
-                       "elevation from the IGRA metadata catalog with "
-                       "elapsed time zero at launch_time. For the ~23% of "
-                       "station files not in the metadata catalog, the final "
-                       "fallback anchor is the lowest finite altitude in each "
-                       "profile. This is also the time coordinate used for "
-                       "horizontal drift integration, so IGRA drift tracks "
-                       "are defined even when ETIME is missing.",
+                       "subsample), synthesised as launch_time plus a piecewise-"
+                       "constant ascent model anchored at the station elevation: "
+                       "5.0 m/s below 20 km and 6.0 m/s above, calibrated from the "
+                       "~217k profiles with valid ETIME. This is also the time "
+                       "coordinate used for horizontal drift integration, so IGRA "
+                       "drift tracks are defined even when ETIME is missing.",
         }
     if "launch_x" in out:
         out["launch_x"].attrs = {
