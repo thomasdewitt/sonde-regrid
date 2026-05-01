@@ -26,3 +26,5 @@ __pycache__/
 
 # Download scripts
 download_*.py
+
+.codex
